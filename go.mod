@@ -1,4 +1,4 @@
-module example/eveid
+module github.com/ErikKalkoken/eveid
 
 go 1.24.3
 
