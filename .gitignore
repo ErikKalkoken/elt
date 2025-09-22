@@ -1,0 +1,19 @@
+.vscode/
+*.sqlite
+.temp/
+temp/
+*.sqlite-shm
+*.sqlite-wal
+EVE Buddy.tar.xz
+*.log
+evebuddy.exe
+*.AppImage
+fynemeta
+evebuddy
+profile*.gif
+__debug_*
+*.apk
+fyne_metadata_init.go
+EVE Buddy.exe
+playground/
+**/testdata/failed
