@@ -28,7 +28,7 @@ func ids(ctx context.Context, cmd *cli.Command) error {
 	if err := setLogLevel(cmd); err != nil {
 		return err
 	}
-	items, err := resolveIDs2(cmd.Int32Args("ids"))
+	items, err := resolveIDs2(cmd.Int32Args("ID"))
 	if err != nil {
 		return err
 	}

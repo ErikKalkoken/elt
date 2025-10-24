@@ -41,7 +41,7 @@ func main() {
 				},
 				Arguments: []cli.Argument{
 					&cli.Int32Args{
-						Name: "ids",
+						Name: "ID",
 						Min:  1,
 						Max:  -1,
 					},
@@ -51,6 +51,13 @@ func main() {
 				Name:   "types",
 				Usage:  "fetch info about a type",
 				Action: types,
+				Arguments: []cli.Argument{
+					&cli.Int32Args{
+						Name: "ID",
+						Min:  1,
+						Max:  -1,
+					},
+				},
 			},
 		},
 	}
