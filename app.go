@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -60,11 +59,10 @@ type App struct {
 	httpClient *retryablehttp.Client
 }
 
-func NewApp() App {
+func NewApp(httpClient *retryablehttp.Client) App {
 	a := App{
-		httpClient: retryablehttp.NewClient(),
+		httpClient: httpClient,
 	}
-	a.httpClient.Logger = slog.Default()
 	return a
 }
 
@@ -76,11 +74,85 @@ func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	slices.SortFunc(entities, func(a, b EveEntity) int {
-		return cmp.Compare(a.ID, b.ID)
-	})
+	sortEntities(cmd.Bool("sort-category"), cmd.Bool("sort-id"), cmd.Bool("sort-name"), entities)
 	a.printEveEntities(entities)
 	return nil
+}
+
+func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
+	if len(ids) == 0 {
+		return []EveEntity{}, nil
+	}
+	entities, err := a.resolveIDFromAPI(ids)
+	if errors.Is(err, errNotFound) {
+		n := len(ids)
+		if n == 1 {
+			return []EveEntity{{ID: ids[0], Name: "", Category: Invalid}}, nil
+		}
+		var it1, it2 []EveEntity
+		g := new(errgroup.Group)
+		g.Go(func() error {
+			entities, err := a.resolveIDs(ids[:n/2])
+			if err != nil {
+				return err
+			}
+			it1 = entities
+			return nil
+		})
+		g.Go(func() error {
+			entities, err := a.resolveIDs(ids[n/2:])
+			if err != nil {
+				return err
+			}
+			it2 = entities
+			return nil
+		})
+		if err := g.Wait(); err != nil {
+			return nil, err
+		}
+		entities = slices.Concat(it1, it2)
+		return entities, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[int32]EveEntity)
+	for _, e := range entities {
+		m[e.ID] = e
+	}
+	entities2 := make([]EveEntity, 0)
+	for _, id := range ids {
+		entities2 = append(entities2, m[id])
+	}
+	return entities2, nil
+}
+
+func (a App) resolveIDFromAPI(ids []int32) ([]EveEntity, error) {
+	body, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	r, err := retryablehttp.NewRequest("POST", "https://"+path.Join(esiBaseURL, "universe", "names"), bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	r.Header.Add("Content-Type", "application/json")
+	res, err := a.httpClient.Do(r)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return nil, errNotFound
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned error: %s", res.Status)
+	}
+	entities := make([]EveEntity, 0)
+	if err := json.NewDecoder(res.Body).Decode(&entities); err != nil {
+		return nil, err
+	}
+	return entities, nil
 }
 
 func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
@@ -91,9 +163,7 @@ func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	slices.SortFunc(entities, func(a, b EveEntity) int {
-		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-	})
+	sortEntities(cmd.Bool("sort-category"), cmd.Bool("sort-id"), cmd.Bool("sort-name"), entities)
 	a.printEveEntities(entities)
 	return nil
 }
@@ -161,72 +231,19 @@ func (a App) resolveNames(names []string) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
-	if len(ids) == 0 {
-		return []EveEntity{}, nil
+func sortEntities(sortCategory, sortID, sortName bool, entities []EveEntity) {
+	if !sortID && !sortName && !sortCategory {
+		return
 	}
-	entities, err := a.resolveIDFromAPI(ids)
-	if errors.Is(err, errNotFound) {
-		n := len(ids)
-		if n == 1 {
-			return []EveEntity{{ID: ids[0], Name: "", Category: Invalid}}, nil
+	slices.SortFunc(entities, func(a, b EveEntity) int {
+		if sortCategory && a.Category != b.Category {
+			return strings.Compare(string(a.Category), string(b.Category))
 		}
-		var it1, it2 []EveEntity
-		g := new(errgroup.Group)
-		g.Go(func() error {
-			entities, err := a.resolveIDs(ids[:n/2])
-			if err != nil {
-				return err
-			}
-			it1 = entities
-			return nil
-		})
-		g.Go(func() error {
-			entities, err := a.resolveIDs(ids[n/2:])
-			if err != nil {
-				return err
-			}
-			it2 = entities
-			return nil
-		})
-		if err := g.Wait(); err != nil {
-			return nil, err
+		if sortName && a.Name != b.Name {
+			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 		}
-		entities = slices.Concat(it1, it2)
-		return entities, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
-func (a App) resolveIDFromAPI(ids []int32) ([]EveEntity, error) {
-	body, err := json.Marshal(ids)
-	if err != nil {
-		return nil, err
-	}
-	r, err := retryablehttp.NewRequest("POST", "https://"+path.Join(esiBaseURL, "universe", "names"), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-	r.Header.Add("Content-Type", "application/json")
-	res, err := a.httpClient.Do(r)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode == http.StatusNotFound {
-		return nil, errNotFound
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned error: %s", res.Status)
-	}
-	entities := make([]EveEntity, 0)
-	if err := json.NewDecoder(res.Body).Decode(&entities); err != nil {
-		return nil, err
-	}
-	return entities, nil
+		return cmp.Compare(a.ID, b.ID)
+	})
 }
 
 func (App) printEveEntities(entities []EveEntity) {

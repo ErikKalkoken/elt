@@ -1,4 +1,4 @@
-module github.com/ErikKalkoken/eveid
+module github.com/ErikKalkoken/everef
 
 go 1.24.3
 
@@ -7,6 +7,7 @@ require (
 	github.com/olekukonko/tablewriter v1.1.0
 	github.com/urfave/cli/v3 v3.5.0
 	golang.org/x/sync v0.17.0
+	golang.org/x/text v0.30.0
 )
 
 require (

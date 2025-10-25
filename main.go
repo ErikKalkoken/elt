@@ -1,4 +1,4 @@
-// eveid is a command line tool for resolved Eve Online IDs to names and categories.
+// everef is a command line tool for getting information about Eve Online objects.
 package main
 
 import (
@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/urfave/cli/v3"
 )
 
@@ -21,9 +22,11 @@ const (
 var errNotFound = errors.New("not found")
 
 func main() {
-	app := NewApp()
+	httpClient := retryablehttp.NewClient()
+	httpClient.Logger = slog.Default()
+	app := NewApp(httpClient)
 	cmd := &cli.Command{
-		Usage:   "A command line tool for querying information about Eve Online objects.",
+		Usage:   "A command line tool for getting information about Eve Online objects.",
 		Version: "0.1.0",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -45,6 +48,17 @@ func main() {
 						Max:  -1,
 					},
 				},
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name: "sort-category",
+					},
+					&cli.BoolFlag{
+						Name: "sort-id",
+					},
+					&cli.BoolFlag{
+						Name: "sort-name",
+					},
+				},
 			},
 			{
 				Name:   "names",
@@ -55,6 +69,17 @@ func main() {
 						Name: "Name",
 						Min:  1,
 						Max:  -1,
+					},
+				},
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name: "sort-category",
+					},
+					&cli.BoolFlag{
+						Name: "sort-id",
+					},
+					&cli.BoolFlag{
+						Name: "sort-name",
 					},
 				},
 			},
