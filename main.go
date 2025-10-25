@@ -21,7 +21,7 @@ const (
 var errNotFound = errors.New("not found")
 
 func main() {
-	app := newApp()
+	app := NewApp()
 	cmd := &cli.Command{
 		Usage: "A command line tool for querying information about Eve Online objects.",
 		Flags: []cli.Flag{
@@ -36,7 +36,7 @@ func main() {
 			{
 				Name:   "ids",
 				Usage:  "resolve entity IDs to names and categories",
-				Action: app.commandIDs,
+				Action: app.CommandIDs,
 				Arguments: []cli.Argument{
 					&cli.Int32Args{
 						Name: "ID",
