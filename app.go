@@ -29,6 +29,7 @@ type EntityCategory string
 // Supported categories of EveEntity
 const (
 	Undefined     EntityCategory = ""
+	Agent         EntityCategory = "agent"
 	Alliance      EntityCategory = "alliance"
 	Character     EntityCategory = "character"
 	Constellation EntityCategory = "constellation"
@@ -67,23 +68,104 @@ func NewApp() App {
 	return a
 }
 
-func (a App) CommandIDs(ctx context.Context, cmd *cli.Command) error {
+func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
 	if err := setLogLevel(cmd); err != nil {
 		return err
 	}
-	items, err := a.resolveIDs(cmd.Int32Args("ID"))
+	entities, err := a.resolveIDs(cmd.Int32Args("ID"))
 	if err != nil {
 		return err
 	}
-	a.printEveEntities(items)
+	slices.SortFunc(entities, func(a, b EveEntity) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+	a.printEveEntities(entities)
 	return nil
+}
+
+func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
+	if err := setLogLevel(cmd); err != nil {
+		return err
+	}
+	entities, err := a.resolveNames(cmd.StringArgs("Name"))
+	if err != nil {
+		return err
+	}
+	slices.SortFunc(entities, func(a, b EveEntity) int {
+		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
+	a.printEveEntities(entities)
+	return nil
+}
+
+func (a App) resolveNames(names []string) ([]EveEntity, error) {
+	body, err := json.Marshal(names)
+	if err != nil {
+		return nil, err
+	}
+	r, err := retryablehttp.NewRequest("POST", "https://"+path.Join(esiBaseURL, "universe", "ids"), bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	r.Header.Add("Content-Type", "application/json")
+	res, err := a.httpClient.Do(r)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned error: %s", res.Status)
+	}
+	var data map[string][]EveEntity
+	if err := json.NewDecoder(res.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	found := make(map[string]bool)
+	entities := make([]EveEntity, 0)
+	for category, items := range data {
+		var ec EntityCategory
+		switch category {
+		case "agents":
+			ec = Agent
+		case "alliances":
+			ec = Alliance
+		case "characters":
+			ec = Character
+		case "corporations":
+			ec = Corporation
+		case "constellations":
+			ec = Constellation
+		case "factions":
+			ec = Faction
+		case "inventory_types":
+			ec = InventoryType
+		case "regions":
+			ec = Region
+		case "stations":
+			ec = Station
+		case "systems":
+			ec = SolarSystem
+		}
+		for _, it := range items {
+			it.Category = ec
+			entities = append(entities, it)
+			found[it.Name] = true
+		}
+	}
+	for _, n := range names {
+		if found[n] {
+			continue
+		}
+		entities = append(entities, EveEntity{Name: n, Category: Invalid})
+	}
+	return entities, nil
 }
 
 func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 	if len(ids) == 0 {
 		return []EveEntity{}, nil
 	}
-	items, err := a.resolveIDFromAPI(ids)
+	entities, err := a.resolveIDFromAPI(ids)
 	if errors.Is(err, errNotFound) {
 		n := len(ids)
 		if n == 1 {
@@ -92,31 +174,31 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 		var it1, it2 []EveEntity
 		g := new(errgroup.Group)
 		g.Go(func() error {
-			items, err := a.resolveIDs(ids[:n/2])
+			entities, err := a.resolveIDs(ids[:n/2])
 			if err != nil {
 				return err
 			}
-			it1 = items
+			it1 = entities
 			return nil
 		})
 		g.Go(func() error {
-			items, err := a.resolveIDs(ids[n/2:])
+			entities, err := a.resolveIDs(ids[n/2:])
 			if err != nil {
 				return err
 			}
-			it2 = items
+			it2 = entities
 			return nil
 		})
 		if err := g.Wait(); err != nil {
 			return nil, err
 		}
-		items = slices.Concat(it1, it2)
-		return items, nil
+		entities = slices.Concat(it1, it2)
+		return entities, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return items, nil
+	return entities, nil
 }
 
 func (a App) resolveIDFromAPI(ids []int32) ([]EveEntity, error) {
@@ -140,19 +222,16 @@ func (a App) resolveIDFromAPI(ids []int32) ([]EveEntity, error) {
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API returned error: %s", res.Status)
 	}
-	items := make([]EveEntity, 0)
-	if err := json.NewDecoder(res.Body).Decode(&items); err != nil {
+	entities := make([]EveEntity, 0)
+	if err := json.NewDecoder(res.Body).Decode(&entities); err != nil {
 		return nil, err
 	}
-	return items, nil
+	return entities, nil
 }
 
-func (App) printEveEntities(items []EveEntity) {
-	slices.SortFunc(items, func(a, b EveEntity) int {
-		return cmp.Compare(a.ID, b.ID)
-	})
+func (App) printEveEntities(entities []EveEntity) {
 	data := make([][]any, 0)
-	for _, item := range items {
+	for _, item := range entities {
 		data = append(data, []any{item.ID, item.Name, item.Category.Display()})
 	}
 	table := tablewriter.NewTable(os.Stdout,
