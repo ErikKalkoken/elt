@@ -1,11 +1,11 @@
-# Main workflow for testing and releasing
+# Workflow for testing and releasing
 
 name: CI/CD
 
 env:
   GOVERSION: "1.24.3"
   NAME: "everef"
-  PREFIX: "everef-${{  github.ref_name }}"
+  VERSION: "0.0.0"
 
 on: push
 
@@ -45,29 +45,34 @@ jobs:
         sudo apt-get update
         sudo apt-get install zip gzip tar
 
+    - name: Set version
+      run: |
+        VERSION=${{ github.ref_name }}
+        echo "VERSION=${VERSION:1}" >> $GITHUB_ENV
+
     - name: Build linux
-      run: GOOS=linux GOARCH=amd64 go build -ldflags "-X main.Version=${{ github.ref_name }}" -o ./build/linux/ .
+      run: GOOS=linux GOARCH=amd64 go build -ldflags "-X main.Version=${{ env.VERSION }}" -o ./build/linux/ .
 
     - name: Package linux
-      run: tar --directory=build/linux -czvf ${{ env.PREFIX }}-linux-amd64.tar.gz ${{ env.NAME }}
+      run: tar --directory=build/linux -czvf ${{ env.NAME }}-${{ env.VERSION }}-linux-amd64.tar.gz ${{ env.NAME }}
 
     - name: Build windows
-      run: GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=${{ github.ref_name }}" -o ./build/windows/ .
+      run: GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=${{ env.VERSION }}" -o ./build/windows/ .
 
     - name: Package windows
-      run: zip -j ${{ env.PREFIX }}-windows-amd64.zip ./build/windows/${{ env.NAME }}.exe
+      run: zip -j ${{ env.NAME }}-${{ env.VERSION }}-windows-amd64.zip ./build/windows/${{ env.NAME }}.exe
 
     - name: Build darwin
-      run: GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.Version=${{ github.ref_name }}" -o ./build/darwin/ .
+      run: GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.Version=${{ env.VERSION }}" -o ./build/darwin/ .
 
     - name: Package darwin
-      run: zip -j ${{ env.PREFIX }}-darwin-amd64.zip ./build/darwin/${{ env.NAME }}
+      run: zip -j ${{ env.NAME }}-${{ env.VERSION }}-darwin-amd64.zip ./build/darwin/${{ env.NAME }}
 
     - name: Create release
       uses: softprops/action-gh-release@v2
       with:
         fail_on_unmatched_files: true
         files: |
-          ${{ env.PREFIX }}-darwin-amd64.zip
-          ${{ env.PREFIX }}-linux-amd64.tar.gz
-          ${{ env.PREFIX }}-windows-amd64.zip
+          ${{ env.NAME }}-${{ env.VERSION }}-darwin-amd64.zip
+          ${{ env.NAME }}-${{ env.VERSION }}-linux-amd64.tar.gz
+          ${{ env.NAME }}-${{ env.VERSION }}-windows-amd64.zip
