@@ -75,7 +75,7 @@ func (a App) ListCache(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	sortEntities(cmd.Bool("sort-category"), cmd.Bool("sort-id"), cmd.Bool("sort-name"), entities)
+	sortEntities(cmd.String("sort"), entities)
 	a.printEveEntitiesWithTimeout(entities)
 	return nil
 }
@@ -94,7 +94,7 @@ func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	sortEntities(cmd.Bool("sort-category"), cmd.Bool("sort-id"), cmd.Bool("sort-name"), entities)
+	sortEntities(cmd.String("sort"), entities)
 	a.printEveEntities(entities)
 	return nil
 }
@@ -218,7 +218,7 @@ func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	entities := slices.Concat(entities1, entities2)
-	sortEntities(cmd.Bool("sort-category"), cmd.Bool("sort-id"), cmd.Bool("sort-name"), entities)
+	sortEntities(cmd.String("sort"), entities)
 	a.printEveEntities(entities)
 	return nil
 }
@@ -317,18 +317,21 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func sortEntities(sortCategory, sortID, sortName bool, entities []EveEntity) {
-	if !sortID && !sortName && !sortCategory {
-		return
-	}
+func sortEntities(column string, entities []EveEntity) {
 	slices.SortFunc(entities, func(a, b EveEntity) int {
-		if sortCategory && a.Category != b.Category {
-			return strings.Compare(string(a.Category), string(b.Category))
-		}
-		if sortName && a.Name != b.Name {
+		switch column {
+		case "category":
+			if a.Category != b.Category {
+				return strings.Compare(strings.ToLower(string(a.Category)), strings.ToLower(string(b.Category)))
+			}
+			return cmp.Compare(a.ID, b.ID)
+		case "name":
 			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		case "timestamp":
+			return a.Timestamp.Compare(b.Timestamp)
+		default:
+			return cmp.Compare(a.ID, b.ID)
 		}
-		return cmp.Compare(a.ID, b.ID)
 	})
 }
 

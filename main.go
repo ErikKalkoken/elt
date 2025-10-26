@@ -47,6 +47,17 @@ func main() {
 
 	app := NewApp(httpClient, st)
 
+	sortFlag := &cli.StringFlag{
+		Name:  "sort",
+		Value: "id",
+		Usage: "sort output by `COLUMN`",
+		Validator: func(s string) error {
+			if !slices.Contains([]string{"id", "name", "category", "timestamp"}, s) {
+				return fmt.Errorf("invalid sort option: %s", s)
+			}
+			return nil
+		},
+	}
 	cmd := &cli.Command{
 		Usage:   "A command line tool for getting information about Eve Online objects.",
 		Version: "0.1.0",
@@ -76,17 +87,7 @@ func main() {
 						Max:  -1,
 					},
 				},
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name: "sort-category",
-					},
-					&cli.BoolFlag{
-						Name: "sort-id",
-					},
-					&cli.BoolFlag{
-						Name: "sort-name",
-					},
-				},
+				Flags: []cli.Flag{sortFlag},
 			},
 			{
 				Name:   "names",
@@ -99,17 +100,7 @@ func main() {
 						Max:  -1,
 					},
 				},
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name: "sort-category",
-					},
-					&cli.BoolFlag{
-						Name: "sort-id",
-					},
-					&cli.BoolFlag{
-						Name: "sort-name",
-					},
-				},
+				Flags: []cli.Flag{sortFlag},
 			},
 			{
 				Name:  "cache",
@@ -119,6 +110,7 @@ func main() {
 						Name:   "list",
 						Usage:  "list objects",
 						Action: app.ListCache,
+						Flags:  []cli.Flag{sortFlag},
 					},
 					{
 						Name:   "clear",
