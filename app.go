@@ -12,6 +12,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/olekukonko/tablewriter"
@@ -23,25 +24,25 @@ import (
 	"golang.org/x/text/language"
 )
 
-type EntityCategory string
+type EveEntityCategory string
 
 // Supported categories of EveEntity
 const (
-	Undefined     EntityCategory = ""
-	Agent         EntityCategory = "agent"
-	Alliance      EntityCategory = "alliance"
-	Character     EntityCategory = "character"
-	Constellation EntityCategory = "constellation"
-	Corporation   EntityCategory = "corporation"
-	Faction       EntityCategory = "faction"
-	InventoryType EntityCategory = "inventory_type"
-	Region        EntityCategory = "region"
-	SolarSystem   EntityCategory = "solar_system"
-	Station       EntityCategory = "station"
-	Invalid       EntityCategory = "invalid"
+	Undefined     EveEntityCategory = ""
+	Agent         EveEntityCategory = "agent"
+	Alliance      EveEntityCategory = "alliance"
+	Character     EveEntityCategory = "character"
+	Constellation EveEntityCategory = "constellation"
+	Corporation   EveEntityCategory = "corporation"
+	Faction       EveEntityCategory = "faction"
+	InventoryType EveEntityCategory = "inventory_type"
+	Region        EveEntityCategory = "region"
+	SolarSystem   EveEntityCategory = "solar_system"
+	Station       EveEntityCategory = "station"
+	Invalid       EveEntityCategory = "invalid"
 )
 
-func (c EntityCategory) Display() string {
+func (c EveEntityCategory) Display() string {
 	if c == Invalid {
 		return "INVALID"
 	}
@@ -50,26 +51,45 @@ func (c EntityCategory) Display() string {
 }
 
 type EveEntity struct {
-	ID       int32          `json:"id"`
-	Category EntityCategory `json:"category"`
-	Name     string         `json:"name"`
+	ID        int32             `json:"id"`
+	Category  EveEntityCategory `json:"category"`
+	Name      string            `json:"name"`
+	Timestamp time.Time         `json:"timestamp"`
 }
 
 type App struct {
 	httpClient *retryablehttp.Client
+	st         *Storage
 }
 
-func NewApp(httpClient *retryablehttp.Client) App {
+func NewApp(httpClient *retryablehttp.Client, st *Storage) App {
 	a := App{
 		httpClient: httpClient,
+		st:         st,
 	}
 	return a
 }
 
-func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
-	if err := setLogLevel(cmd); err != nil {
+func (a App) ListCache(ctx context.Context, cmd *cli.Command) error {
+	entities, err := a.st.ListEveEntities()
+	if err != nil {
 		return err
 	}
+	sortEntities(cmd.Bool("sort-category"), cmd.Bool("sort-id"), cmd.Bool("sort-name"), entities)
+	a.printEveEntitiesWithTimeout(entities)
+	return nil
+}
+
+func (a App) ClearCache(ctx context.Context, cmd *cli.Command) error {
+	n, err := a.st.Clear()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d objects deleted\n", n)
+	return nil
+}
+
+func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
 	entities, err := a.resolveIDs(cmd.Int32Args("ID"))
 	if err != nil {
 		return err
@@ -80,11 +100,52 @@ func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
 }
 
 func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
+	entities1, unknownIDs, err := a.resolveIDsFromStorage(ids)
+	if err != nil {
+		return nil, err
+	}
+	entities2, err := a.resolveIDsFromAPI(unknownIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.st.UpdateOrCreateEveEntities(entities2...); err != nil {
+		return nil, err
+	}
+	m := make(map[int32]EveEntity)
+	for _, e := range slices.Concat(entities1, entities2) {
+		m[e.ID] = e
+	}
+	entities := make([]EveEntity, 0)
+	for _, id := range ids {
+		entities = append(entities, m[id])
+	}
+	return entities, nil
+}
+
+func (a App) resolveIDsFromStorage(ids []int32) ([]EveEntity, []int32, error) {
+	entities, err := a.st.ListEveEntitiesByID(ids...)
+	if err != nil {
+		return nil, nil, err
+	}
+	found := make(map[int32]bool)
+	for _, ee := range entities {
+		found[ee.ID] = true
+	}
+	missing := make([]int32, 0)
+	for _, id := range ids {
+		if !found[id] {
+			missing = append(missing, id)
+		}
+	}
+	return entities, missing, nil
+}
+
+func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
 	if len(ids) == 0 {
 		return []EveEntity{}, nil
 	}
-	entities, err := a.resolveIDFromAPI(ids)
-	if errors.Is(err, errNotFound) {
+	entities, err := a.resolveIDsFromAPI2(ids)
+	if errors.Is(err, ErrNotFound) {
 		n := len(ids)
 		if n == 1 {
 			return []EveEntity{{ID: ids[0], Name: "", Category: Invalid}}, nil
@@ -92,7 +153,7 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 		var it1, it2 []EveEntity
 		g := new(errgroup.Group)
 		g.Go(func() error {
-			entities, err := a.resolveIDs(ids[:n/2])
+			entities, err := a.resolveIDsFromAPI(ids[:n/2])
 			if err != nil {
 				return err
 			}
@@ -100,7 +161,7 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 			return nil
 		})
 		g.Go(func() error {
-			entities, err := a.resolveIDs(ids[n/2:])
+			entities, err := a.resolveIDsFromAPI(ids[n/2:])
 			if err != nil {
 				return err
 			}
@@ -116,18 +177,10 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := make(map[int32]EveEntity)
-	for _, e := range entities {
-		m[e.ID] = e
-	}
-	entities2 := make([]EveEntity, 0)
-	for _, id := range ids {
-		entities2 = append(entities2, m[id])
-	}
-	return entities2, nil
+	return entities, nil
 }
 
-func (a App) resolveIDFromAPI(ids []int32) ([]EveEntity, error) {
+func (a App) resolveIDsFromAPI2(ids []int32) ([]EveEntity, error) {
 	body, err := json.Marshal(ids)
 	if err != nil {
 		return nil, err
@@ -143,7 +196,7 @@ func (a App) resolveIDFromAPI(ids []int32) ([]EveEntity, error) {
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {
-		return nil, errNotFound
+		return nil, ErrNotFound
 	}
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API returned error: %s", res.Status)
@@ -156,19 +209,42 @@ func (a App) resolveIDFromAPI(ids []int32) ([]EveEntity, error) {
 }
 
 func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
-	if err := setLogLevel(cmd); err != nil {
-		return err
-	}
-	entities, err := a.resolveNames(cmd.StringArgs("Name"))
+	entities1, missing, err := a.resolveNamesFromStorage(cmd.StringArgs("Name"))
 	if err != nil {
 		return err
 	}
+	entities2, err := a.resolveNamesFromAPI(missing)
+	if err != nil {
+		return err
+	}
+	entities := slices.Concat(entities1, entities2)
 	sortEntities(cmd.Bool("sort-category"), cmd.Bool("sort-id"), cmd.Bool("sort-name"), entities)
 	a.printEveEntities(entities)
 	return nil
 }
 
-func (a App) resolveNames(names []string) ([]EveEntity, error) {
+func (a App) resolveNamesFromStorage(names []string) ([]EveEntity, []string, error) {
+	entities, err := a.st.ListEveEntitiesByName(names...)
+	if err != nil {
+		return nil, nil, err
+	}
+	found := make(map[string]bool)
+	for _, ee := range entities {
+		found[ee.Name] = true
+	}
+	missing := make([]string, 0)
+	for _, n := range names {
+		if !found[n] {
+			missing = append(missing, n)
+		}
+	}
+	return entities, missing, nil
+}
+
+func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
+	if len(names) == 0 {
+		return []EveEntity{}, nil
+	}
 	body, err := json.Marshal(names)
 	if err != nil {
 		return nil, err
@@ -190,10 +266,14 @@ func (a App) resolveNames(names []string) ([]EveEntity, error) {
 	if err := json.NewDecoder(res.Body).Decode(&data); err != nil {
 		return nil, err
 	}
+	matches := make(map[string]bool)
+	for _, n := range names {
+		matches[n] = true
+	}
 	found := make(map[string]bool)
 	entities := make([]EveEntity, 0)
 	for category, items := range data {
-		var ec EntityCategory
+		var ec EveEntityCategory
 		switch category {
 		case "agents":
 			ec = Agent
@@ -217,6 +297,9 @@ func (a App) resolveNames(names []string) ([]EveEntity, error) {
 			ec = SolarSystem
 		}
 		for _, it := range items {
+			if !matches[it.Name] {
+				continue
+			}
 			it.Category = ec
 			entities = append(entities, it)
 			found[it.Name] = true
@@ -227,6 +310,9 @@ func (a App) resolveNames(names []string) ([]EveEntity, error) {
 			continue
 		}
 		entities = append(entities, EveEntity{Name: n, Category: Invalid})
+	}
+	if err := a.st.UpdateOrCreateEveEntities(entities...); err != nil {
+		return nil, err
 	}
 	return entities, nil
 }
@@ -246,10 +332,22 @@ func sortEntities(sortCategory, sortID, sortName bool, entities []EveEntity) {
 	})
 }
 
-func (App) printEveEntities(entities []EveEntity) {
+func (a App) printEveEntities(entities []EveEntity) {
+	a.printEveEntitiesX(entities, false)
+}
+
+func (a App) printEveEntitiesWithTimeout(entities []EveEntity) {
+	a.printEveEntitiesX(entities, true)
+}
+
+func (App) printEveEntitiesX(entities []EveEntity, showTimestamp bool) {
 	data := make([][]any, 0)
-	for _, item := range entities {
-		data = append(data, []any{item.ID, item.Name, item.Category.Display()})
+	for _, ee := range entities {
+		if showTimestamp {
+			data = append(data, []any{ee.ID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)})
+		} else {
+			data = append(data, []any{ee.ID, ee.Name, ee.Category.Display()})
+		}
 	}
 	table := tablewriter.NewTable(os.Stdout,
 		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
@@ -263,7 +361,11 @@ func (App) printEveEntities(entities []EveEntity) {
 			},
 		}),
 	)
-	table.Header("ID", "Name", "Category")
+	if showTimestamp {
+		table.Header("ID", "Name", "Category", "Timestamp")
+	} else {
+		table.Header("ID", "Name", "Category")
+	}
 	table.Bulk(data)
 	table.Render()
 }

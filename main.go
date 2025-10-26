@@ -11,20 +11,42 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/adrg/xdg"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/urfave/cli/v3"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
 	esiBaseURL = "esi.evetech.net"
 )
 
-var errNotFound = errors.New("not found")
+var ErrNotFound = errors.New("not found")
 
 func main() {
+	exitWithError := func(err error) {
+		fmt.Println("ERROR: " + err.Error())
+		os.Exit(1)
+	}
+	p, err := xdg.CacheFile("everef/cache.db")
+	if err != nil {
+		exitWithError(err)
+	}
+	db, err := bolt.Open(p, 0600, nil)
+	if err != nil {
+		exitWithError(err)
+	}
+	defer db.Close()
+	st := NewStorage(db)
+	if err := st.Init(); err != nil {
+		exitWithError(err)
+	}
+
 	httpClient := retryablehttp.NewClient()
 	httpClient.Logger = slog.Default()
-	app := NewApp(httpClient)
+
+	app := NewApp(httpClient, st)
+
 	cmd := &cli.Command{
 		Usage:   "A command line tool for getting information about Eve Online objects.",
 		Version: "0.1.0",
@@ -35,6 +57,12 @@ func main() {
 				Value:   "info",
 				Usage:   "log level for this sessions",
 			},
+		},
+		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+			if err := setLogLevel(cmd); err != nil {
+				return ctx, err
+			}
+			return ctx, nil
 		},
 		Commands: []*cli.Command{
 			{
@@ -83,12 +111,26 @@ func main() {
 					},
 				},
 			},
+			{
+				Name:  "cache",
+				Usage: "manage cached entities",
+				Commands: []*cli.Command{
+					{
+						Name:   "list",
+						Usage:  "list objects",
+						Action: app.ListCache,
+					},
+					{
+						Name:   "clear",
+						Usage:  "clear objects",
+						Action: app.ClearCache,
+					},
+				},
+			},
 		},
 	}
-
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		fmt.Println("ERROR: " + err.Error())
-		os.Exit(1)
+		exitWithError(err)
 	}
 }
 
