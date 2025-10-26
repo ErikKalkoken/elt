@@ -23,6 +23,9 @@ const (
 
 var ErrNotFound = errors.New("not found")
 
+// Version is overwritten in the CI release process.
+var Version = "0.1.0"
+
 func main() {
 	exitWithError := func(err error) {
 		fmt.Println("ERROR: " + err.Error())
@@ -60,7 +63,7 @@ func main() {
 	}
 	cmd := &cli.Command{
 		Usage:   "A command line tool for getting information about Eve Online objects.",
-		Version: "0.1.0",
+		Version: Version,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "log-level",
