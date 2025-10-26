@@ -11,13 +11,25 @@
 
 ## Description
 
-everef is a command line tool for getting information about EVE Online objects. A typical use case is a developer of 3rd party app for EVE Online, who wants to find out quickly what an EVE ID refers to.
+**everef** is a command line tool for getting information about EVE Online objects. A typical use case is a community developer, who wants to find out quickly what an EVE ID refers to.
 
 **everef** provides the following features:
 
-- Resolve a list of IDs or names to EVE Entities. Supports the following categories: Agents, Alliances, Characters, Constellations, Corporations, Factions, Regions, Stations, Solar Systems, Types
-- Shows unresolvable objects as invalid
-- Available for Windows, Linux and macOS
+- Resolve a list of IDs to EVE Entities
+- Resolve a list of names to EVE Entities
+- Supports the following categories: Agents, Alliances, Characters, Constellations, Corporations, Factions, Regions, Stations, Solar Systems, Types
+- Results are shown in pretty tables
+- Released for Windows, Linux and macOS
+
+**everef** has to following advantages over using the API directly, e.g. via API explorer:
+
+- Invalid IDs are not omitted, but explicitly mentioned as invalid in the results
+- Can resolve a set of IDs even when it contains invalid IDs
+- Does not break on temporary outages (e.g. API requests often fail with 503s)
+- Faster turnaround due to locally cached results
+- Exact name matching (the API sometimes returns objects which similar names, e.g. for "Jita")
+- Developer does not need to leave the developer environment (e.g. by switching to a browser)
+- Easier to use then raw curl commands
 
 ## Installing
 
