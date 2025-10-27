@@ -36,9 +36,17 @@ func (c EveEntityCategory) Display() string {
 
 type EveEntity struct {
 	Category  EveEntityCategory `json:"category"`
-	ID        int32             `json:"id"`
+	EntityID  int32             `json:"entity_id"`
 	Name      string            `json:"name"`
 	Timestamp time.Time         `json:"timestamp"`
+}
+
+func (ee EveEntity) ID() int32 {
+	return ee.EntityID
+}
+
+func (ee *EveEntity) SetTimestamp(t time.Time) {
+	ee.Timestamp = t
 }
 
 type EveCategory struct {
@@ -75,4 +83,8 @@ type EveType struct {
 
 func (et EveType) ID() int32 {
 	return et.TypeID
+}
+
+func (et *EveType) SetTimestamp(t time.Time) {
+	et.Timestamp = t
 }

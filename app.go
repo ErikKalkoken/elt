@@ -41,7 +41,7 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 	}
 	sortEntities(cmd.String("sort"), entities)
 	t := makeTable([]string{"ID", "Name", "Category", "Timeout"}, entities, func(ee EveEntity) []any {
-		return []any{ee.ID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
+		return []any{ee.EntityID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
 	})
 	t.Render()
 	return nil
@@ -63,7 +63,7 @@ func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
 	}
 	sortEntities(cmd.String("sort"), entities)
 	t := makeTable([]string{"ID", "Name", "Category"}, entities, func(ee EveEntity) []any {
-		return []any{ee.ID, ee.Name, ee.Category.Display()}
+		return []any{ee.EntityID, ee.Name, ee.Category.Display()}
 	})
 	t.Render()
 	return nil
@@ -83,7 +83,7 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 	}
 	m := make(map[int32]EveEntity)
 	for _, e := range slices.Concat(entities1, entities2) {
-		m[e.ID] = e
+		m[e.EntityID] = e
 	}
 	entities := make([]EveEntity, 0)
 	for _, id := range ids {
@@ -99,7 +99,7 @@ func (a App) resolveIDsFromStorage(ids []int32) ([]EveEntity, []int32, error) {
 	}
 	found := make(map[int32]bool)
 	for _, ee := range entities {
-		found[ee.ID] = true
+		found[ee.EntityID] = true
 	}
 	missing := make([]int32, 0)
 	for _, id := range ids {
@@ -118,7 +118,12 @@ func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
 	if errors.Is(err, ErrNotFound) {
 		n := len(ids)
 		if n == 1 {
-			return []EveEntity{{ID: ids[0], Name: "", Category: Invalid}}, nil
+			return []EveEntity{{
+				EntityID:  ids[0],
+				Name:      "",
+				Category:  Invalid,
+				Timestamp: now(),
+			}}, nil
 		}
 		var it1, it2 []EveEntity
 		g := new(errgroup.Group)
@@ -179,9 +184,10 @@ func (a App) resolveIDsFromAPI2(ids []int32) ([]EveEntity, error) {
 	entities := make([]EveEntity, 0)
 	for _, o := range data {
 		entities = append(entities, EveEntity{
-			ID:       o.Id,
-			Name:     o.Name,
-			Category: eveEntityCategoryFromESICategory(o.Category),
+			EntityID:  o.Id,
+			Name:      o.Name,
+			Category:  eveEntityCategoryFromESICategory(o.Category),
+			Timestamp: now(),
 		})
 	}
 	return entities, nil
@@ -199,7 +205,7 @@ func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
 	entities := slices.Concat(entities1, entities2)
 	sortEntities(cmd.String("sort"), entities)
 	t := makeTable([]string{"ID", "Name", "Category"}, entities, func(ee EveEntity) []any {
-		return []any{ee.ID, ee.Name, ee.Category.Display()}
+		return []any{ee.EntityID, ee.Name, ee.Category.Display()}
 	})
 	t.Render()
 	return nil
@@ -245,9 +251,10 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 			return
 		}
 		entities = append(entities, EveEntity{
-			ID:       id,
-			Name:     name,
-			Category: category,
+			EntityID:  id,
+			Name:      name,
+			Category:  category,
+			Timestamp: now(),
 		})
 		found[name] = true
 	}
@@ -285,7 +292,11 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 		if found[n] {
 			continue
 		}
-		entities = append(entities, EveEntity{Name: n, Category: Invalid})
+		entities = append(entities, EveEntity{
+			Name:      n,
+			Category:  Invalid,
+			Timestamp: now(),
+		})
 	}
 	if err := a.st.UpdateOrCreateEveEntities(entities...); err != nil {
 		return nil, err
@@ -300,13 +311,13 @@ func sortEntities(column string, entities []EveEntity) {
 			if a.Category != b.Category {
 				return strings.Compare(strings.ToLower(string(a.Category)), strings.ToLower(string(b.Category)))
 			}
-			return cmp.Compare(a.ID, b.ID)
+			return cmp.Compare(a.EntityID, b.EntityID)
 		case "name":
 			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 		case "timestamp":
 			return a.Timestamp.Compare(b.Timestamp)
 		default:
-			return cmp.Compare(a.ID, b.ID)
+			return cmp.Compare(a.EntityID, b.EntityID)
 		}
 	})
 }
@@ -324,10 +335,15 @@ func (a App) ResolveTypes(ctx context.Context, cmd *cli.Command) error {
 				TypeID:      x.TypeId,
 				Name:        x.Name,
 				Published:   x.Published,
+				Timestamp:   now(),
 			}
 		},
 		func(id int32) EveType {
-			return EveType{TypeID: id, Name: "INVALID"}
+			return EveType{
+				TypeID:    id,
+				Name:      "INVALID",
+				Timestamp: now(),
+			}
 		},
 	)
 	if err != nil {
@@ -348,10 +364,15 @@ func (a App) ResolveTypes(ctx context.Context, cmd *cli.Command) error {
 				GroupID:    x.GroupId,
 				Name:       x.Name,
 				Published:  x.Published,
+				Timestamp:  now(),
 			}
 		},
 		func(id int32) EveGroup {
-			return EveGroup{GroupID: id, Name: "INVALID"}
+			return EveGroup{
+				GroupID:   id,
+				Name:      "INVALID",
+				Timestamp: now(),
+			}
 		},
 	)
 	if err != nil {
@@ -368,11 +389,7 @@ func (a App) ResolveTypes(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-type int32ID interface {
-	ID() int32
-}
-
-func fetchObjectsFromAPI[X any, Y int32ID](ids []int32, fetcher func(int32) (X, *http.Response, error), mapper func(X) Y, invalid func(int32) Y) (map[int32]Y, error) {
+func fetchObjectsFromAPI[X any, Y Identifiable](ids []int32, fetcher func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y) (map[int32]Y, error) {
 	m := make(map[int32]bool)
 	for _, et := range ids {
 		m[et] = true
@@ -424,4 +441,8 @@ func makeTable[T any](headers []string, objs []T, makeRow func(T) []any) *tablew
 	t.Header(headers)
 	t.Bulk(rows)
 	return t
+}
+
+func now() time.Time {
+	return time.Now().UTC()
 }

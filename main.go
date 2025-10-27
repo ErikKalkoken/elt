@@ -34,17 +34,20 @@ func main() {
 		fmt.Println("ERROR: " + err.Error())
 		os.Exit(1)
 	}
-	p, err := xdg.CacheFile("everef/cache.db")
+	dbFilepath, err := xdg.CacheFile("everef/cache.db")
 	if err != nil {
 		exitWithError(err)
 	}
-	db, err := bolt.Open(p, 0600, nil)
+	db, err := bolt.Open(dbFilepath, 0600, nil)
 	if err != nil {
 		exitWithError(err)
 	}
 	defer db.Close()
 	st := NewStorage(db)
 	if err := st.Init(); err != nil {
+		exitWithError(err)
+	}
+	if err := st.RemoveStaleObjects(); err != nil {
 		exitWithError(err)
 	}
 
@@ -124,8 +127,8 @@ func main() {
 				Flags: []cli.Flag{sortFlag},
 			},
 			{
-				Name:  "system",
-				Usage: "manage cached entities",
+				Name:  "dev",
+				Usage: "developer features",
 				Commands: []*cli.Command{
 					{
 						Name:   "dump",
@@ -137,6 +140,14 @@ func main() {
 						Name:   "clear-cache",
 						Usage:  "clear all cached objects",
 						Action: app.ClearCache,
+					},
+					{
+						Name:  "files",
+						Usage: "list files in use",
+						Action: func(ctx context.Context, c *cli.Command) error {
+							fmt.Printf("DB: %s\n", dbFilepath)
+							return nil
+						},
 					},
 				},
 			},

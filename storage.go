@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	bucketEveEntities  = "eve_entities"
-	eveEntitiesTimeout = 24 * time.Hour // older objects will no longer be found
+	bucketEveEntities = "eve_entities"
+	bucketEveTypes    = "eve_types"
+	objectsTimeout    = 24 * time.Hour // expired objects will no longer be found and removed
 )
 
 type Storage struct {
@@ -26,26 +27,12 @@ func NewStorage(db *bolt.DB) *Storage {
 
 func (st *Storage) Init() error {
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte(bucketEveEntities))
-		if err != nil {
+		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveEntities)); err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
-		// remove stale objects from database
-		var n int
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			ee, err := eveEntityFromDB(v)
-			if err != nil {
-				return err
-			}
-			if ee.Timestamp.Before(time.Now().UTC().Add(-eveEntitiesTimeout)) {
-				if err := c.Delete(); err != nil {
-					return err
-				}
-				n++
-			}
+		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveTypes)); err != nil {
+			return fmt.Errorf("create bucket: %s", err)
 		}
-		slog.Debug("stale objects deleted", "count", n)
 		return nil
 	}); err != nil {
 		return err
@@ -53,19 +40,57 @@ func (st *Storage) Init() error {
 	return nil
 }
 
+type eveObjectWithTimestamp struct {
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// RemoveStaleObjects deletes all stale objects in all buckets.
+func (st *Storage) RemoveStaleObjects() error {
+	var n int
+	if err := st.db.Update(func(tx *bolt.Tx) error {
+		for _, bucket := range []string{bucketEveEntities, bucketEveTypes} {
+			b := tx.Bucket([]byte(bucket))
+			if b == nil {
+				return fmt.Errorf("bucket does not exit: %s", bucket)
+			}
+			c := b.Cursor()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				var o eveObjectWithTimestamp
+				if err := json.Unmarshal(v, &o); err != nil {
+					return err
+				}
+				if o.Timestamp.Before(time.Now().UTC().Add(-objectsTimeout)) {
+					if err := c.Delete(); err != nil {
+						return err
+					}
+					n++
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	slog.Debug("stale objects deleted", "count", n)
+	return nil
+}
+
+// Clear deletes all objects in all buckets.
 func (st *Storage) Clear() (int, error) {
 	var n int
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketEveEntities))
-		if b == nil {
-			return fmt.Errorf("bucket does not exit: %s", bucketEveEntities)
-		}
-		c := b.Cursor()
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			if err := c.Delete(); err != nil {
-				return err
+		for _, name := range []string{bucketEveEntities, bucketEveTypes} {
+			b := tx.Bucket([]byte(name))
+			if b == nil {
+				return fmt.Errorf("bucket does not exit: %s", name)
 			}
-			n++
+			c := b.Cursor()
+			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+				if err := c.Delete(); err != nil {
+					return err
+				}
+				n++
+			}
 		}
 		return nil
 	}); err != nil {
@@ -74,6 +99,7 @@ func (st *Storage) Clear() (int, error) {
 	return n, nil
 }
 
+// MustClear is like [Clear], but panics on any error.
 func (st *Storage) MustClear() int {
 	n, err := st.Clear()
 	if err != nil {
@@ -82,85 +108,8 @@ func (st *Storage) MustClear() int {
 	return n
 }
 
-func (st *Storage) GetEveEntity(id int32) (EveEntity, error) {
-	var ee EveEntity
-	if err := st.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketEveEntities))
-		if b == nil {
-			return fmt.Errorf("bucket does not exit: %s", bucketEveEntities)
-		}
-		v := b.Get(eveEntityKeyToDB(id))
-		if v == nil {
-			return ErrNotFound
-		}
-		ee2, err := eveEntityFromDB(v)
-		if err != nil {
-			return err
-		}
-		ee = ee2
-		return nil
-	}); err != nil {
-		return ee, err
-	}
-	return ee, nil
-}
-
-func (st *Storage) ListEveEntities() ([]EveEntity, error) {
-	entities := make([]EveEntity, 0)
-	if err := st.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketEveEntities))
-		if b == nil {
-			return fmt.Errorf("bucket does not exit: %s", bucketEveEntities)
-		}
-		if err := b.ForEach(func(k, v []byte) error {
-			ee, err := eveEntityFromDB(v)
-			if err != nil {
-				return err
-			}
-			entities = append(entities, ee)
-			return nil
-		}); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
 func (st *Storage) ListEveEntitiesByID(ids ...int32) ([]EveEntity, error) {
-	isMatch := make(map[int32]bool)
-	for _, id := range ids {
-		isMatch[id] = true
-	}
-	entities := make([]EveEntity, 0)
-	if err := st.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketEveEntities))
-		if b == nil {
-			return fmt.Errorf("bucket does not exit: %s", bucketEveEntities)
-		}
-		if err := b.ForEach(func(k, v []byte) error {
-			id, err := eveEntityKeyFromDB(k)
-			if err != nil {
-				return err
-			}
-			if isMatch[id] {
-				ee, err := eveEntityFromDB(v)
-				if err != nil {
-					return err
-				}
-				entities = append(entities, ee)
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return entities, nil
+	return listEveObjectsByID[EveEntity](st, bucketEveEntities, ids)
 }
 
 func (st *Storage) ListEveEntitiesByName(names ...string) ([]EveEntity, error) {
@@ -193,22 +142,100 @@ func (st *Storage) ListEveEntitiesByName(names ...string) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func (st *Storage) UpdateOrCreateEveEntities(entities ...EveEntity) error {
-	if len(entities) == 0 {
+func (st *Storage) ListEveEntities() ([]EveEntity, error) {
+	return listEveObjects[EveEntity](st, bucketEveEntities)
+}
+
+func (st *Storage) UpdateOrCreateEveEntities(objs ...EveEntity) error {
+	return updateOrCreateEveObjects(st, bucketEveEntities, objs)
+}
+
+func (st *Storage) ListEveTypes() ([]EveType, error) {
+	return listEveObjects[EveType](st, bucketEveTypes)
+}
+
+func (st *Storage) ListEveTypesByID(ids ...int32) ([]EveType, error) {
+	return listEveObjectsByID[EveType](st, bucketEveTypes, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveTypes(objs ...EveType) error {
+	return updateOrCreateEveObjects(st, bucketEveTypes, objs)
+}
+
+type Identifiable interface {
+	ID() int32
+}
+
+func listEveObjects[T Identifiable](st *Storage, bucket string) ([]T, error) {
+	objs := make([]T, 0)
+	if err := st.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucket))
+		if b == nil {
+			return fmt.Errorf("bucket does not exit: %s", bucket)
+		}
+		if err := b.ForEach(func(k, v []byte) error {
+			var o T
+			if err := json.Unmarshal(v, &o); err != nil {
+				return err
+			}
+			objs = append(objs, o)
+			return nil
+		}); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return objs, nil
+}
+
+func listEveObjectsByID[T Identifiable](st *Storage, bucket string, ids []int32) ([]T, error) {
+	isMatch := make(map[int32]bool)
+	for _, id := range ids {
+		isMatch[id] = true
+	}
+	objs := make([]T, 0)
+	if err := st.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucket))
+		if b == nil {
+			return fmt.Errorf("bucket does not exit: %s", bucket)
+		}
+		if err := b.ForEach(func(k, v []byte) error {
+			var o T
+			if err := json.Unmarshal(v, &o); err != nil {
+				return err
+			}
+			if isMatch[o.ID()] {
+				objs = append(objs, o)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return objs, nil
+}
+
+func updateOrCreateEveObjects[T Identifiable](st *Storage, bucket string, objs []T) error {
+	if len(objs) == 0 {
 		return nil
 	}
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketEveEntities))
+		b := tx.Bucket([]byte(bucket))
 		if b == nil {
-			return fmt.Errorf("bucket does not exit: %s", bucketEveEntities)
+			return fmt.Errorf("bucket does not exit: %s", bucket)
 		}
-		for _, ee := range entities {
-			ee.Timestamp = time.Now().UTC()
-			v, err := eveEntityToDB(ee)
+		for _, ee := range objs {
+			v, err := json.Marshal(ee)
 			if err != nil {
 				return err
 			}
-			if err := b.Put(eveEntityKeyToDB(ee.ID), v); err != nil {
+			id := strconv.Itoa(int(ee.ID()))
+			if err := b.Put([]byte(id), v); err != nil {
 				return err
 			}
 		}
@@ -217,23 +244,6 @@ func (st *Storage) UpdateOrCreateEveEntities(entities ...EveEntity) error {
 		return err
 	}
 	return nil
-}
-
-func eveEntityKeyToDB(id int32) []byte {
-	k := strconv.Itoa(int(id))
-	return []byte(k)
-}
-
-func eveEntityKeyFromDB(b []byte) (int32, error) {
-	id, err := strconv.Atoi(string(b))
-	if err != nil {
-		return 0, err
-	}
-	return int32(id), nil
-}
-
-func eveEntityToDB(ee EveEntity) ([]byte, error) {
-	return json.Marshal(ee)
 }
 
 func eveEntityFromDB(b []byte) (EveEntity, error) {
