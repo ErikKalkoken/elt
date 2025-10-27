@@ -29,7 +29,7 @@ func TestStorageEveEntites(t *testing.T) {
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		ee, err := st.ListEveEntitiesByID(1, 2)
+		ee, missing, err := st.ListEveEntitiesByID(1, 3, 4)
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -37,8 +37,9 @@ func TestStorageEveEntites(t *testing.T) {
 		for _, x := range ee {
 			got = append(got, x.EntityID)
 		}
-		want := []int32{1, 2}
+		want := []int32{1, 3}
 		assert.ElementsMatch(t, want, got)
+		assert.ElementsMatch(t, []int32{4}, missing)
 	})
 	t.Run("can list entities by Name", func(t *testing.T) {
 		st.MustClear()
@@ -124,7 +125,7 @@ func TestStorageEveTypes(t *testing.T) {
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		ee, err := st.ListEveTypesByID(1, 3)
+		ee, missing, err := st.ListEveTypesByID(1, 3, 4)
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -133,6 +134,59 @@ func TestStorageEveTypes(t *testing.T) {
 			got = append(got, x.TypeID)
 		}
 		want := []int32{1, 3}
+		assert.ElementsMatch(t, want, got)
+		assert.ElementsMatch(t, []int32{4}, missing)
+
+	})
+}
+
+func TestStorageEveObjects(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "everef.db")
+	db, err := bolt.Open(p, 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	st := NewStorage(db)
+	if err := st.Init(); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("can list categories", func(t *testing.T) {
+		st.MustClear()
+		oo1 := EveCategory{CategoryID: 1, Name: "abc"}
+		oo2 := EveCategory{CategoryID: 2, Name: "def"}
+		err = st.UpdateOrCreateEveCategories(oo1, oo2)
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		oo, err := st.ListEveCategories()
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := make([]int32, 0)
+		for _, x := range oo {
+			got = append(got, x.ID())
+		}
+		want := []int32{1, 2}
+		assert.ElementsMatch(t, want, got)
+	})
+	t.Run("can list groups", func(t *testing.T) {
+		st.MustClear()
+		oo1 := EveGroup{GroupID: 1, Name: "abc"}
+		oo2 := EveGroup{GroupID: 2, Name: "def"}
+		err = st.UpdateOrCreateEveGroups(oo1, oo2)
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		oo, err := st.ListEveGroups()
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := make([]int32, 0)
+		for _, x := range oo {
+			got = append(got, x.ID())
+		}
+		want := []int32{1, 2}
 		assert.ElementsMatch(t, want, got)
 	})
 }

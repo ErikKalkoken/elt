@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	bucketEveEntities = "eve_entities"
-	bucketEveTypes    = "eve_types"
-	objectsTimeout    = 24 * time.Hour // expired objects will no longer be found and removed
+	bucketEveEntities   = "eve_entities"
+	bucketEveCategories = "eve_categories"
+	bucketEveGroups     = "eve_groups"
+	bucketEveTypes      = "eve_types"
+	objectsTimeout      = 24 * time.Hour // expired objects should be replaced
 )
 
 type Storage struct {
@@ -27,7 +29,13 @@ func NewStorage(db *bolt.DB) *Storage {
 
 func (st *Storage) Init() error {
 	if err := st.db.Update(func(tx *bolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveCategories)); err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
 		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveEntities)); err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
+		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveGroups)); err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveTypes)); err != nil {
@@ -48,7 +56,7 @@ type eveObjectWithTimestamp struct {
 func (st *Storage) RemoveStaleObjects() error {
 	var n int
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		for _, bucket := range []string{bucketEveEntities, bucketEveTypes} {
+		for _, bucket := range []string{bucketEveEntities, bucketEveTypes, bucketEveGroups, bucketEveCategories} {
 			b := tx.Bucket([]byte(bucket))
 			if b == nil {
 				return fmt.Errorf("bucket does not exit: %s", bucket)
@@ -108,7 +116,7 @@ func (st *Storage) MustClear() int {
 	return n
 }
 
-func (st *Storage) ListEveEntitiesByID(ids ...int32) ([]EveEntity, error) {
+func (st *Storage) ListEveEntitiesByID(ids ...int32) ([]EveEntity, []int32, error) {
 	return listEveObjectsByID[EveEntity](st, bucketEveEntities, ids)
 }
 
@@ -150,11 +158,35 @@ func (st *Storage) UpdateOrCreateEveEntities(objs ...EveEntity) error {
 	return updateOrCreateEveObjects(st, bucketEveEntities, objs)
 }
 
+func (st *Storage) ListEveCategories() ([]EveCategory, error) {
+	return listEveObjects[EveCategory](st, bucketEveCategories)
+}
+
+func (st *Storage) ListEveCategoriesByID(ids ...int32) ([]EveCategory, []int32, error) {
+	return listEveObjectsByID[EveCategory](st, bucketEveCategories, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveCategories(objs ...EveCategory) error {
+	return updateOrCreateEveObjects(st, bucketEveCategories, objs)
+}
+
+func (st *Storage) ListEveGroups() ([]EveGroup, error) {
+	return listEveObjects[EveGroup](st, bucketEveGroups)
+}
+
+func (st *Storage) ListEveGroupsByID(ids ...int32) ([]EveGroup, []int32, error) {
+	return listEveObjectsByID[EveGroup](st, bucketEveGroups, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveGroups(objs ...EveGroup) error {
+	return updateOrCreateEveObjects(st, bucketEveGroups, objs)
+}
+
 func (st *Storage) ListEveTypes() ([]EveType, error) {
 	return listEveObjects[EveType](st, bucketEveTypes)
 }
 
-func (st *Storage) ListEveTypesByID(ids ...int32) ([]EveType, error) {
+func (st *Storage) ListEveTypesByID(ids ...int32) ([]EveType, []int32, error) {
 	return listEveObjectsByID[EveType](st, bucketEveTypes, ids)
 }
 
@@ -190,7 +222,7 @@ func listEveObjects[T Identifiable](st *Storage, bucket string) ([]T, error) {
 	return objs, nil
 }
 
-func listEveObjectsByID[T Identifiable](st *Storage, bucket string, ids []int32) ([]T, error) {
+func listEveObjectsByID[T Identifiable](st *Storage, bucket string, ids []int32) ([]T, []int32, error) {
 	isMatch := make(map[int32]bool)
 	for _, id := range ids {
 		isMatch[id] = true
@@ -215,9 +247,19 @@ func listEveObjectsByID[T Identifiable](st *Storage, bucket string, ids []int32)
 		}
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return objs, nil
+	found := make(map[int32]bool)
+	for _, o := range objs {
+		found[o.ID()] = true
+	}
+	missing := make([]int32, 0)
+	for _, id := range ids {
+		if !found[id] {
+			missing = append(missing, id)
+		}
+	}
+	return objs, missing, nil
 }
 
 func updateOrCreateEveObjects[T Identifiable](st *Storage, bucket string, objs []T) error {

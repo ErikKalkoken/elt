@@ -39,11 +39,38 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println("Entities")
 	sortEntities(cmd.String("sort"), entities)
-	t := makeTable([]string{"ID", "Name", "Category", "Timeout"}, entities, func(ee EveEntity) []any {
+	printTable([]string{"ID", "Name", "Category", "Timeout"}, entities, func(ee EveEntity) []any {
 		return []any{ee.EntityID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
 	})
-	t.Render()
+
+	categories, err := a.st.ListEveCategories()
+	if err != nil {
+		return err
+	}
+	fmt.Println("Categories")
+	printTable([]string{"ID", "Name", "Timestamp"}, categories, func(o EveCategory) []any {
+		return []any{o.CategoryID, o.Name, o.Timestamp.Format(time.RFC3339)}
+	})
+
+	groups, err := a.st.ListEveGroups()
+	if err != nil {
+		return err
+	}
+	fmt.Println("Groups")
+	printTable([]string{"ID", "Name", "CategoryID", "Timestamp"}, groups, func(o EveGroup) []any {
+		return []any{o.GroupID, o.Name, o.CategoryID, o.Timestamp.Format(time.RFC3339)}
+	})
+
+	types, err := a.st.ListEveTypes()
+	if err != nil {
+		return err
+	}
+	fmt.Println("Types")
+	printTable([]string{"ID", "Name", "Description", "GroupID", "Timestamp"}, types, func(o EveType) []any {
+		return []any{o.TypeID, o.Name, o.Description, o.GroupID, o.Timestamp.Format(time.RFC3339)}
+	})
 	return nil
 }
 
@@ -62,15 +89,14 @@ func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	sortEntities(cmd.String("sort"), entities)
-	t := makeTable([]string{"ID", "Name", "Category"}, entities, func(ee EveEntity) []any {
+	printTable([]string{"ID", "Name", "Category"}, entities, func(ee EveEntity) []any {
 		return []any{ee.EntityID, ee.Name, ee.Category.Display()}
 	})
-	t.Render()
 	return nil
 }
 
 func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
-	entities1, unknownIDs, err := a.resolveIDsFromStorage(ids)
+	entities1, unknownIDs, err := a.st.ListEveEntitiesByID(ids...)
 	if err != nil {
 		return nil, err
 	}
@@ -90,24 +116,6 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 		entities = append(entities, m[id])
 	}
 	return entities, nil
-}
-
-func (a App) resolveIDsFromStorage(ids []int32) ([]EveEntity, []int32, error) {
-	entities, err := a.st.ListEveEntitiesByID(ids...)
-	if err != nil {
-		return nil, nil, err
-	}
-	found := make(map[int32]bool)
-	for _, ee := range entities {
-		found[ee.EntityID] = true
-	}
-	missing := make([]int32, 0)
-	for _, id := range ids {
-		if !found[id] {
-			missing = append(missing, id)
-		}
-	}
-	return entities, missing, nil
 }
 
 func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
@@ -204,10 +212,9 @@ func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
 	}
 	entities := slices.Concat(entities1, entities2)
 	sortEntities(cmd.String("sort"), entities)
-	t := makeTable([]string{"ID", "Name", "Category"}, entities, func(ee EveEntity) []any {
+	printTable([]string{"ID", "Name", "Category"}, entities, func(ee EveEntity) []any {
 		return []any{ee.EntityID, ee.Name, ee.Category.Display()}
 	})
-	t.Render()
 	return nil
 }
 
@@ -323,8 +330,12 @@ func sortEntities(column string, entities []EveEntity) {
 }
 
 func (a App) ResolveTypes(ctx context.Context, cmd *cli.Command) error {
-	types, err := fetchObjectsFromAPI(
-		cmd.Int32Args("ID"),
+	typesLocal, missing, err := a.st.ListEveTypesByID(cmd.Int32Args("ID")...)
+	if err != nil {
+		return err
+	}
+	typesRemote, err := fetchObjectsFromAPI(
+		missing,
 		func(id int32) (esi.GetUniverseTypesTypeIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseTypesTypeId(context.Background(), id, nil)
 		},
@@ -349,12 +360,85 @@ func (a App) ResolveTypes(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	if len(typesRemote) > 0 {
+		err := a.st.UpdateOrCreateEveTypes(typesRemote...)
+		if err != nil {
+			return err
+		}
+	}
+	types := slices.Concat(typesLocal, typesRemote)
 	groupIDs := make([]int32, 0)
 	for _, et := range types {
 		groupIDs = append(groupIDs, et.GroupID)
 	}
-	groups, err := fetchObjectsFromAPI(
-		groupIDs,
+	groups, err := a.fetchGroups(groupIDs)
+	if err != nil {
+		return err
+	}
+	categoryIDs := make([]int32, 0)
+	for _, eg := range groups {
+		categoryIDs = append(categoryIDs, eg.CategoryID)
+	}
+	categories, err := a.fetchCategories(categoryIDs)
+	if err != nil {
+		return err
+	}
+	slices.SortFunc(types, func(a, b EveType) int {
+		return cmp.Compare(a.TypeID, b.TypeID)
+	})
+	categoryLookup := makeLookupMap(categories)
+	groupLookup := makeLookupMap(groups)
+	printTable([]string{"ID", "Name", "Description", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"}, types, func(o EveType) []any {
+		group := groupLookup[o.GroupID]
+		category := categoryLookup[group.CategoryID]
+		return []any{o.TypeID, o.Name, o.Description, group.GroupID, group.Name, category.CategoryID, category.Name, o.Published}
+	})
+	return nil
+}
+
+func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
+	groupsLocal, missing, err := a.st.ListEveCategoriesByID(uniqueIDs(ids)...)
+	if err != nil {
+		return nil, err
+	}
+	groupsRemote, err := fetchObjectsFromAPI(
+		missing,
+		func(id int32) (esi.GetUniverseCategoriesCategoryIdOk, *http.Response, error) {
+			return a.esiClient.ESI.UniverseApi.GetUniverseCategoriesCategoryId(context.Background(), id, nil)
+		},
+		func(x esi.GetUniverseCategoriesCategoryIdOk) EveCategory {
+			return EveCategory{
+				CategoryID: x.CategoryId,
+				Name:       x.Name,
+				Published:  x.Published,
+				Timestamp:  now(),
+			}
+		},
+		func(id int32) EveCategory {
+			return EveCategory{
+				CategoryID: id,
+				Name:       "INVALID",
+				Timestamp:  now(),
+			}
+		},
+	)
+	if len(groupsRemote) > 0 {
+		err := a.st.UpdateOrCreateEveCategories(groupsRemote...)
+		if err != nil {
+			return nil, err
+		}
+	}
+	groups := slices.Concat(groupsLocal, groupsRemote)
+	return groups, err
+}
+
+func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
+	groupsLocal, missing, err := a.st.ListEveGroupsByID(uniqueIDs(ids)...)
+	if err != nil {
+		return nil, err
+	}
+	groupsRemote, err := fetchObjectsFromAPI(
+		missing,
 		func(id int32) (esi.GetUniverseGroupsGroupIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseGroupsGroupId(context.Background(), id, nil)
 		},
@@ -375,26 +459,34 @@ func (a App) ResolveTypes(ctx context.Context, cmd *cli.Command) error {
 			}
 		},
 	)
-	if err != nil {
-		return err
+	if len(groupsRemote) > 0 {
+		err := a.st.UpdateOrCreateEveGroups(groupsRemote...)
+		if err != nil {
+			return nil, err
+		}
 	}
-	types2 := slices.Collect(maps.Values(types))
-	slices.SortFunc(types2, func(a, b EveType) int {
-		return cmp.Compare(a.TypeID, b.TypeID)
-	})
-	t := makeTable([]string{"ID", "Name", "Description", "GroupID", "GroupName"}, types2, func(o EveType) []any {
-		return []any{o.TypeID, o.Name, o.Description, o.GroupID, groups[o.GroupID].Name}
-	})
-	t.Render()
-	return nil
+	groups := slices.Concat(groupsLocal, groupsRemote)
+	return groups, err
 }
 
-func fetchObjectsFromAPI[X any, Y Identifiable](ids []int32, fetcher func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y) (map[int32]Y, error) {
+func uniqueIDs(ids []int32) []int32 {
 	m := make(map[int32]bool)
-	for _, et := range ids {
-		m[et] = true
+	for _, id := range ids {
+		m[id] = true
 	}
-	ids2 := slices.Collect(maps.Keys(m))
+	return slices.Collect(maps.Keys(m))
+}
+
+func makeLookupMap[T Identifiable](objs []T) map[int32]T {
+	m := make(map[int32]T)
+	for _, o := range objs {
+		m[o.ID()] = o
+	}
+	return m
+}
+
+func fetchObjectsFromAPI[X any, Y Identifiable](ids []int32, fetcher func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y) ([]Y, error) {
+	ids2 := uniqueIDs(ids)
 	objs := make([]Y, len(ids2))
 	g := new(errgroup.Group)
 	for i, id := range ids2 {
@@ -414,14 +506,10 @@ func fetchObjectsFromAPI[X any, Y Identifiable](ids []int32, fetcher func(id int
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
-	objs2 := make(map[int32]Y)
-	for _, o := range objs {
-		objs2[o.ID()] = o
-	}
-	return objs2, nil
+	return objs, nil
 }
 
-func makeTable[T any](headers []string, objs []T, makeRow func(T) []any) *tablewriter.Table {
+func printTable[T any](headers []string, objs []T, makeRow func(T) []any) {
 	rows := make([][]any, 0)
 	for _, o := range objs {
 		rows = append(rows, makeRow(o))
@@ -431,7 +519,7 @@ func makeTable[T any](headers []string, objs []T, makeRow func(T) []any) *tablew
 			Settings: tw.Settings{Separators: tw.Separators{BetweenRows: tw.On}},
 		})),
 		tablewriter.WithConfig(tablewriter.Config{
-			MaxWidth: 200,
+			MaxWidth: 300,
 			Row: tw.CellConfig{
 				Formatting: tw.CellFormatting{AutoWrap: tw.WrapNormal},
 				Alignment:  tw.CellAlignment{Global: tw.AlignLeft}, // Left-align rows
@@ -440,7 +528,7 @@ func makeTable[T any](headers []string, objs []T, makeRow func(T) []any) *tablew
 	)
 	t.Header(headers)
 	t.Bulk(rows)
-	return t
+	t.Render()
 }
 
 func now() time.Time {
