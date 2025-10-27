@@ -111,18 +111,31 @@ func main() {
 				Flags: []cli.Flag{sortFlag},
 			},
 			{
-				Name:  "cache",
+				Name:   "types",
+				Usage:  "show types",
+				Action: app.ResolveTypes,
+				Arguments: []cli.Argument{
+					&cli.Int32Args{
+						Name: "ID",
+						Min:  1,
+						Max:  -1,
+					},
+				},
+				Flags: []cli.Flag{sortFlag},
+			},
+			{
+				Name:  "system",
 				Usage: "manage cached entities",
 				Commands: []*cli.Command{
 					{
-						Name:   "list",
-						Usage:  "list objects",
-						Action: app.ListCache,
+						Name:   "dump",
+						Usage:  "dump cached objects",
+						Action: app.DumpCache,
 						Flags:  []cli.Flag{sortFlag},
 					},
 					{
-						Name:   "clear",
-						Usage:  "clear objects",
+						Name:   "clear-cache",
+						Usage:  "clear all cached objects",
 						Action: app.ClearCache,
 					},
 				},
