@@ -127,11 +127,11 @@ func main() {
 				Flags: []cli.Flag{sortFlag},
 			},
 			{
-				Name:  "dev",
-				Usage: "developer features",
+				Name:  "system",
+				Usage: "system utilities",
 				Commands: []*cli.Command{
 					{
-						Name:   "dump",
+						Name:   "dump-cache",
 						Usage:  "dump cached objects",
 						Action: app.DumpCache,
 						Flags:  []cli.Flag{sortFlag},

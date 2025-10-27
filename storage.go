@@ -18,6 +18,8 @@ const (
 	objectsTimeout      = 24 * time.Hour // expired objects should be replaced
 )
 
+var buckets = []string{bucketEveEntities, bucketEveTypes, bucketEveGroups, bucketEveCategories}
+
 type Storage struct {
 	db *bolt.DB
 }
@@ -56,7 +58,7 @@ type eveObjectWithTimestamp struct {
 func (st *Storage) RemoveStaleObjects() error {
 	var n int
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		for _, bucket := range []string{bucketEveEntities, bucketEveTypes, bucketEveGroups, bucketEveCategories} {
+		for _, bucket := range buckets {
 			b := tx.Bucket([]byte(bucket))
 			if b == nil {
 				return fmt.Errorf("bucket does not exit: %s", bucket)
@@ -87,7 +89,7 @@ func (st *Storage) RemoveStaleObjects() error {
 func (st *Storage) Clear() (int, error) {
 	var n int
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		for _, name := range []string{bucketEveEntities, bucketEveTypes} {
+		for _, name := range buckets {
 			b := tx.Bucket([]byte(name))
 			if b == nil {
 				return fmt.Errorf("bucket does not exit: %s", name)
@@ -116,11 +118,13 @@ func (st *Storage) MustClear() int {
 	return n
 }
 
-func (st *Storage) ListEveEntitiesByID(ids ...int32) ([]EveEntity, []int32, error) {
+func (st *Storage) ListEveEntitiesByID(ids []int32) ([]EveEntity, []int32, error) {
 	return listEveObjectsByID[EveEntity](st, bucketEveEntities, ids)
 }
 
-func (st *Storage) ListEveEntitiesByName(names ...string) ([]EveEntity, error) {
+// TODO: Add index for names
+
+func (st *Storage) ListEveEntitiesByName(names []string) ([]EveEntity, error) {
 	isMatch := make(map[string]bool)
 	for _, n := range names {
 		isMatch[n] = true
@@ -154,7 +158,7 @@ func (st *Storage) ListEveEntities() ([]EveEntity, error) {
 	return listEveObjects[EveEntity](st, bucketEveEntities)
 }
 
-func (st *Storage) UpdateOrCreateEveEntities(objs ...EveEntity) error {
+func (st *Storage) UpdateOrCreateEveEntities(objs []EveEntity) error {
 	return updateOrCreateEveObjects(st, bucketEveEntities, objs)
 }
 
@@ -166,7 +170,7 @@ func (st *Storage) ListEveCategoriesByID(ids ...int32) ([]EveCategory, []int32, 
 	return listEveObjectsByID[EveCategory](st, bucketEveCategories, ids)
 }
 
-func (st *Storage) UpdateOrCreateEveCategories(objs ...EveCategory) error {
+func (st *Storage) UpdateOrCreateEveCategories(objs []EveCategory) error {
 	return updateOrCreateEveObjects(st, bucketEveCategories, objs)
 }
 
@@ -178,7 +182,7 @@ func (st *Storage) ListEveGroupsByID(ids ...int32) ([]EveGroup, []int32, error) 
 	return listEveObjectsByID[EveGroup](st, bucketEveGroups, ids)
 }
 
-func (st *Storage) UpdateOrCreateEveGroups(objs ...EveGroup) error {
+func (st *Storage) UpdateOrCreateEveGroups(objs []EveGroup) error {
 	return updateOrCreateEveObjects(st, bucketEveGroups, objs)
 }
 
@@ -186,11 +190,11 @@ func (st *Storage) ListEveTypes() ([]EveType, error) {
 	return listEveObjects[EveType](st, bucketEveTypes)
 }
 
-func (st *Storage) ListEveTypesByID(ids ...int32) ([]EveType, []int32, error) {
+func (st *Storage) ListEveTypesByID(ids []int32) ([]EveType, []int32, error) {
 	return listEveObjectsByID[EveType](st, bucketEveTypes, ids)
 }
 
-func (st *Storage) UpdateOrCreateEveTypes(objs ...EveType) error {
+func (st *Storage) UpdateOrCreateEveTypes(objs []EveType) error {
 	return updateOrCreateEveObjects(st, bucketEveTypes, objs)
 }
 
@@ -223,43 +227,31 @@ func listEveObjects[T Identifiable](st *Storage, bucket string) ([]T, error) {
 }
 
 func listEveObjectsByID[T Identifiable](st *Storage, bucket string, ids []int32) ([]T, []int32, error) {
-	isMatch := make(map[int32]bool)
-	for _, id := range ids {
-		isMatch[id] = true
-	}
+	notFound := make([]int32, 0)
 	objs := make([]T, 0)
 	if err := st.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b == nil {
 			return fmt.Errorf("bucket does not exit: %s", bucket)
 		}
-		if err := b.ForEach(func(k, v []byte) error {
+		for _, id := range ids {
+			k := []byte(strconv.Itoa(int(id)))
+			v := b.Get(k)
+			if v == nil {
+				notFound = append(notFound, id)
+				continue
+			}
 			var o T
 			if err := json.Unmarshal(v, &o); err != nil {
 				return err
 			}
-			if isMatch[o.ID()] {
-				objs = append(objs, o)
-			}
-			return nil
-		}); err != nil {
-			return err
+			objs = append(objs, o)
 		}
 		return nil
 	}); err != nil {
 		return nil, nil, err
 	}
-	found := make(map[int32]bool)
-	for _, o := range objs {
-		found[o.ID()] = true
-	}
-	missing := make([]int32, 0)
-	for _, id := range ids {
-		if !found[id] {
-			missing = append(missing, id)
-		}
-	}
-	return objs, missing, nil
+	return objs, notFound, nil
 }
 
 func updateOrCreateEveObjects[T Identifiable](st *Storage, bucket string, objs []T) error {

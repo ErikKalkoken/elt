@@ -45,10 +45,6 @@ func (ee EveEntity) ID() int32 {
 	return ee.EntityID
 }
 
-func (ee *EveEntity) SetTimestamp(t time.Time) {
-	ee.Timestamp = t
-}
-
 type EveCategory struct {
 	CategoryID int32     `json:"category_id"`
 	Name       string    `json:"name"`
@@ -73,18 +69,13 @@ func (eg EveGroup) ID() int32 {
 }
 
 type EveType struct {
-	Description string    `json:"description"`
-	GroupID     int32     `json:"group_id"`
-	Name        string    `json:"name"`
-	Published   bool      `json:"published"`
-	Timestamp   time.Time `json:"timestamp"`
-	TypeID      int32     `json:"type_id"`
+	GroupID   int32     `json:"group_id"`
+	Name      string    `json:"name"`
+	Published bool      `json:"published"`
+	Timestamp time.Time `json:"timestamp"`
+	TypeID    int32     `json:"type_id"`
 }
 
 func (et EveType) ID() int32 {
 	return et.TypeID
-}
-
-func (et *EveType) SetTimestamp(t time.Time) {
-	et.Timestamp = t
 }

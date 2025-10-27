@@ -25,11 +25,11 @@ func TestStorageEveEntites(t *testing.T) {
 		ee1 := EveEntity{EntityID: 1, Name: "abc", Category: Character}
 		ee2 := EveEntity{EntityID: 2, Name: "def", Category: Station}
 		ee3 := EveEntity{EntityID: 3, Name: "ghi", Category: Faction}
-		err = st.UpdateOrCreateEveEntities(ee1, ee2, ee3)
+		err = st.UpdateOrCreateEveEntities([]EveEntity{ee1, ee2, ee3})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		ee, missing, err := st.ListEveEntitiesByID(1, 3, 4)
+		ee, missing, err := st.ListEveEntitiesByID([]int32{1, 3, 4})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -46,11 +46,11 @@ func TestStorageEveEntites(t *testing.T) {
 		ee1 := EveEntity{EntityID: 1, Name: "alpha", Category: Character}
 		ee2 := EveEntity{EntityID: 2, Name: "def", Category: Station}
 		ee3 := EveEntity{EntityID: 3, Name: "alpha", Category: Faction}
-		err = st.UpdateOrCreateEveEntities(ee1, ee2, ee3)
+		err = st.UpdateOrCreateEveEntities([]EveEntity{ee1, ee2, ee3})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		ee, err := st.ListEveEntitiesByName("alpha")
+		ee, err := st.ListEveEntitiesByName([]string{"alpha"})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -65,7 +65,7 @@ func TestStorageEveEntites(t *testing.T) {
 		st.MustClear()
 		ee1 := EveEntity{EntityID: 1, Name: "abc", Category: Character, Timestamp: time.Now()}
 		ee2 := EveEntity{EntityID: 2, Name: "def", Category: Station}
-		err = st.UpdateOrCreateEveEntities(ee1, ee2)
+		err = st.UpdateOrCreateEveEntities([]EveEntity{ee1, ee2})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func TestStorageEveTypes(t *testing.T) {
 		st.MustClear()
 		oo1 := EveType{TypeID: 1, Name: "abc"}
 		oo2 := EveType{TypeID: 2, Name: "def"}
-		err = st.UpdateOrCreateEveTypes(oo1, oo2)
+		err = st.UpdateOrCreateEveTypes([]EveType{oo1, oo2})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -121,11 +121,11 @@ func TestStorageEveTypes(t *testing.T) {
 		oo1 := EveType{TypeID: 1, Name: "abc"}
 		oo2 := EveType{TypeID: 2, Name: "def"}
 		oo3 := EveType{TypeID: 3, Name: "ghi"}
-		err = st.UpdateOrCreateEveTypes(oo1, oo2, oo3)
+		err = st.UpdateOrCreateEveTypes([]EveType{oo1, oo2, oo3})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		ee, missing, err := st.ListEveTypesByID(1, 3, 4)
+		ee, missing, err := st.ListEveTypesByID([]int32{1, 3, 4})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -153,9 +153,9 @@ func TestStorageEveObjects(t *testing.T) {
 	}
 	t.Run("can list categories", func(t *testing.T) {
 		st.MustClear()
-		oo1 := EveCategory{CategoryID: 1, Name: "abc"}
-		oo2 := EveCategory{CategoryID: 2, Name: "def"}
-		err = st.UpdateOrCreateEveCategories(oo1, oo2)
+		o1 := EveCategory{CategoryID: 1, Name: "abc"}
+		o2 := EveCategory{CategoryID: 2, Name: "def"}
+		err = st.UpdateOrCreateEveCategories([]EveCategory{o1, o2})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -172,9 +172,9 @@ func TestStorageEveObjects(t *testing.T) {
 	})
 	t.Run("can list groups", func(t *testing.T) {
 		st.MustClear()
-		oo1 := EveGroup{GroupID: 1, Name: "abc"}
-		oo2 := EveGroup{GroupID: 2, Name: "def"}
-		err = st.UpdateOrCreateEveGroups(oo1, oo2)
+		o1 := EveGroup{GroupID: 1, Name: "abc"}
+		o2 := EveGroup{GroupID: 2, Name: "def"}
+		err = st.UpdateOrCreateEveGroups([]EveGroup{o1, o2})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
