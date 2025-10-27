@@ -1,20 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"path"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
+	"github.com/antihax/goesi"
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/renderer"
 	"github.com/olekukonko/tablewriter/tw"
@@ -58,14 +55,14 @@ type EveEntity struct {
 }
 
 type App struct {
-	httpClient *retryablehttp.Client
-	st         *Storage
+	esiClient *goesi.APIClient
+	st        *Storage
 }
 
-func NewApp(httpClient *retryablehttp.Client, st *Storage) App {
+func NewApp(esiClient *goesi.APIClient, st *Storage) App {
 	a := App{
-		httpClient: httpClient,
-		st:         st,
+		esiClient: esiClient,
+		st:        st,
 	}
 	return a
 }
@@ -181,29 +178,38 @@ func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
 }
 
 func (a App) resolveIDsFromAPI2(ids []int32) ([]EveEntity, error) {
-	body, err := json.Marshal(ids)
+	data, res, err := a.esiClient.ESI.UniverseApi.PostUniverseNames(context.Background(), ids, nil)
 	if err != nil {
+		if res != nil && res.StatusCode == http.StatusNotFound {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
-	r, err := retryablehttp.NewRequest("POST", "https://"+path.Join(esiBaseURL, "universe", "names"), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-	r.Header.Add("Content-Type", "application/json")
-	res, err := a.httpClient.Do(r)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode == http.StatusNotFound {
-		return nil, ErrNotFound
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned error: %s", res.Status)
+	eveEntityCategoryFromESICategory := func(c string) EveEntityCategory {
+		categoryMap := map[string]EveEntityCategory{
+			"alliance":       Alliance,
+			"character":      Character,
+			"corporation":    Corporation,
+			"constellation":  Constellation,
+			"faction":        Faction,
+			"inventory_type": InventoryType,
+			"region":         Region,
+			"solar_system":   SolarSystem,
+			"station":        Station,
+		}
+		c2, ok := categoryMap[c]
+		if !ok {
+			return Undefined
+		}
+		return c2
 	}
 	entities := make([]EveEntity, 0)
-	if err := json.NewDecoder(res.Body).Decode(&entities); err != nil {
-		return nil, err
+	for _, o := range data {
+		entities = append(entities, EveEntity{
+			ID:       o.Id,
+			Name:     o.Name,
+			Category: eveEntityCategoryFromESICategory(o.Category),
+		})
 	}
 	return entities, nil
 }
@@ -245,26 +251,12 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 	if len(names) == 0 {
 		return []EveEntity{}, nil
 	}
-	body, err := json.Marshal(names)
+	data, res, err := a.esiClient.ESI.UniverseApi.PostUniverseIds(context.Background(), names, nil)
 	if err != nil {
 		return nil, err
 	}
-	r, err := retryablehttp.NewRequest("POST", "https://"+path.Join(esiBaseURL, "universe", "ids"), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-	r.Header.Add("Content-Type", "application/json")
-	res, err := a.httpClient.Do(r)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API returned error: %s", res.Status)
-	}
-	var data map[string][]EveEntity
-	if err := json.NewDecoder(res.Body).Decode(&data); err != nil {
-		return nil, err
 	}
 	matches := make(map[string]bool)
 	for _, n := range names {
@@ -272,38 +264,46 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 	}
 	found := make(map[string]bool)
 	entities := make([]EveEntity, 0)
-	for category, items := range data {
-		var ec EveEntityCategory
-		switch category {
-		case "agents":
-			ec = Agent
-		case "alliances":
-			ec = Alliance
-		case "characters":
-			ec = Character
-		case "corporations":
-			ec = Corporation
-		case "constellations":
-			ec = Constellation
-		case "factions":
-			ec = Faction
-		case "inventory_types":
-			ec = InventoryType
-		case "regions":
-			ec = Region
-		case "stations":
-			ec = Station
-		case "systems":
-			ec = SolarSystem
+	addEntity := func(id int32, name string, category EveEntityCategory) {
+		if !matches[name] {
+			return
 		}
-		for _, it := range items {
-			if !matches[it.Name] {
-				continue
-			}
-			it.Category = ec
-			entities = append(entities, it)
-			found[it.Name] = true
-		}
+		entities = append(entities, EveEntity{
+			ID:       id,
+			Name:     name,
+			Category: category,
+		})
+		found[name] = true
+	}
+	for _, o := range data.Agents {
+		addEntity(o.Id, o.Name, Agent)
+	}
+	for _, o := range data.Alliances {
+		addEntity(o.Id, o.Name, Alliance)
+	}
+	for _, o := range data.Characters {
+		addEntity(o.Id, o.Name, Character)
+	}
+	for _, o := range data.Constellations {
+		addEntity(o.Id, o.Name, Constellation)
+	}
+	for _, o := range data.Corporations {
+		addEntity(o.Id, o.Name, Corporation)
+	}
+	for _, o := range data.Factions {
+		addEntity(o.Id, o.Name, Faction)
+	}
+	for _, o := range data.InventoryTypes {
+		addEntity(o.Id, o.Name, InventoryType)
+	}
+	for _, o := range data.Regions {
+		addEntity(o.Id, o.Name, Region)
+	}
+	for _, o := range data.Stations {
+		addEntity(o.Id, o.Name, Station)
+	}
+	for _, o := range data.Systems {
+		addEntity(o.Id, o.Name, SolarSystem)
 	}
 	for _, n := range names {
 		if found[n] {

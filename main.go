@@ -12,13 +12,16 @@ import (
 	"strings"
 
 	"github.com/adrg/xdg"
+	"github.com/antihax/goesi"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/urfave/cli/v3"
 	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	esiBaseURL = "esi.evetech.net"
+	appName        = "everef"
+	userAgentEmail = "kalkoken87@gmail.com"
+	sourceURL      = "https://github.com/ErikKalkoken/everef"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -45,10 +48,12 @@ func main() {
 		exitWithError(err)
 	}
 
-	httpClient := retryablehttp.NewClient()
-	httpClient.Logger = slog.Default()
+	rhc := retryablehttp.NewClient()
+	rhc.Logger = slog.Default()
+	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, userAgentEmail, sourceURL)
+	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	app := NewApp(httpClient, st)
+	app := NewApp(esiClient, st)
 
 	sortFlag := &cli.StringFlag{
 		Name:  "sort",
