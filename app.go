@@ -392,7 +392,30 @@ func (a App) fetchCharacters(ids []int32) ([]EveType, error) {
 }
 
 func (a App) fetchAndPrintTypes(ids []int32) error {
-	types, err := a.fetchTypes(ids)
+	types, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveTypesByID,
+		func(id int32) (esi.GetUniverseTypesTypeIdOk, *http.Response, error) {
+			return a.esiClient.ESI.UniverseApi.GetUniverseTypesTypeId(context.Background(), id, nil)
+		},
+		func(x esi.GetUniverseTypesTypeIdOk) EveType {
+			return EveType{
+				GroupID:   x.GroupId,
+				TypeID:    x.TypeId,
+				Name:      x.Name,
+				Published: x.Published,
+				Timestamp: now(),
+			}
+		},
+		func(id int32) EveType {
+			return EveType{
+				TypeID:    id,
+				Name:      nameInvalid,
+				Timestamp: now(),
+			}
+		},
+		a.st.UpdateOrCreateEveTypes,
+	)
 	if err != nil {
 		return err
 	}
@@ -422,53 +445,10 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 	return nil
 }
 
-func (a App) fetchTypes(ids []int32) ([]EveType, error) {
-	typesLocal, missing, err := a.st.ListFreshEveTypesByID(sliceUnique(ids))
-	if err != nil {
-		return nil, err
-	}
-	typesRemote, err := fetchObjectsFromAPI(
-		missing,
-		func(id int32) (esi.GetUniverseTypesTypeIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseTypesTypeId(context.Background(), id, nil)
-		},
-		func(x esi.GetUniverseTypesTypeIdOk) EveType {
-			return EveType{
-				GroupID:   x.GroupId,
-				TypeID:    x.TypeId,
-				Name:      x.Name,
-				Published: x.Published,
-				Timestamp: now(),
-			}
-		},
-		func(id int32) EveType {
-			return EveType{
-				TypeID:    id,
-				Name:      nameInvalid,
-				Timestamp: now(),
-			}
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-	if len(typesRemote) > 0 {
-		err := a.st.UpdateOrCreateEveTypes(typesRemote)
-		if err != nil {
-			return nil, err
-		}
-	}
-	types := slices.Concat(typesLocal, typesRemote)
-	return types, nil
-}
-
 func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
-	groupsLocal, missing, err := a.st.ListFreshEveCategoriesByID(sliceUnique(ids)...)
-	if err != nil {
-		return nil, err
-	}
-	groupsRemote, err := fetchObjectsFromAPI(
-		missing,
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveCategoriesByID,
 		func(id int32) (esi.GetUniverseCategoriesCategoryIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseCategoriesCategoryId(context.Background(), id, nil)
 		},
@@ -487,24 +467,15 @@ func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
 				Timestamp:  now(),
 			}
 		},
+		a.st.UpdateOrCreateEveCategories,
 	)
-	if len(groupsRemote) > 0 {
-		err := a.st.UpdateOrCreateEveCategories(groupsRemote)
-		if err != nil {
-			return nil, err
-		}
-	}
-	groups := slices.Concat(groupsLocal, groupsRemote)
-	return groups, err
+	return oo, err
 }
 
 func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
-	groupsLocal, missing, err := a.st.ListFreshEveGroupsByID(sliceUnique(ids)...)
-	if err != nil {
-		return nil, err
-	}
-	groupsRemote, err := fetchObjectsFromAPI(
-		missing,
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveGroupsByID,
 		func(id int32) (esi.GetUniverseGroupsGroupIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseGroupsGroupId(context.Background(), id, nil)
 		},
@@ -524,15 +495,9 @@ func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
 				Timestamp: now(),
 			}
 		},
+		a.st.UpdateOrCreateEveGroups,
 	)
-	if len(groupsRemote) > 0 {
-		err := a.st.UpdateOrCreateEveGroups(groupsRemote)
-		if err != nil {
-			return nil, err
-		}
-	}
-	groups := slices.Concat(groupsLocal, groupsRemote)
-	return groups, err
+	return oo, err
 }
 
 func sliceUnique[T comparable](s []T) []T {
@@ -543,7 +508,7 @@ func sliceUnique[T comparable](s []T) []T {
 	return slices.Collect(maps.Keys(m))
 }
 
-func makeLookupMap[T Identifiable](objs []T) map[int32]T {
+func makeLookupMap[T EveObject](objs []T) map[int32]T {
 	m := make(map[int32]T)
 	for _, o := range objs {
 		m[o.ID()] = o
@@ -551,7 +516,7 @@ func makeLookupMap[T Identifiable](objs []T) map[int32]T {
 	return m
 }
 
-func fetchObjects[X any, Y Identifiable](ids []int32, fetcherStorage func([]int32) ([]Y, []int32, error), fetcherAPI func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y, storer func([]Y) error) ([]Y, error) {
+func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) ([]Y, []int32, error), fetcherAPI func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y, storer func([]Y) error) ([]Y, error) {
 	objsLocal, missing, err := fetcherStorage(sliceUnique(ids))
 	if err != nil {
 		return nil, err
@@ -585,31 +550,7 @@ func fetchObjects[X any, Y Identifiable](ids []int32, fetcherStorage func([]int3
 	return objs, nil
 }
 
-func fetchObjectsFromAPI[X any, Y Identifiable](ids []int32, fetcher func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y) ([]Y, error) {
-	ids2 := sliceUnique(ids)
-	objs := make([]Y, len(ids2))
-	g := new(errgroup.Group)
-	for i, id := range ids2 {
-		g.Go(func() error {
-			x, r, err := fetcher(id)
-			if err != nil {
-				if r != nil && r.StatusCode == http.StatusNotFound {
-					objs[i] = invalid(id)
-					return nil
-				}
-				return err
-			}
-			objs[i] = mapper(x)
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-	return objs, nil
-}
-
-func printTableWithSort[T Identifiable](out io.Writer, headers []string, objs []T, makeRow func(T) []any) {
+func printTableWithSort[T EveObject](out io.Writer, headers []string, objs []T, makeRow func(T) []any) {
 	slices.SortFunc(objs, func(a, b T) int {
 		return cmp.Compare(a.ID(), b.ID())
 	})

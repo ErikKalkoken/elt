@@ -16,7 +16,7 @@ const (
 	bucketEveTypes      = "eve_types"
 )
 
-var buckets = []string{
+var bucketNames = []string{
 	bucketEveCategories,
 	bucketEveCharacters,
 	bucketEveEntities,
@@ -35,17 +35,10 @@ func NewStorage(db *bolt.DB) *Storage {
 
 func (st *Storage) Init() error {
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveCategories)); err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveEntities)); err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveGroups)); err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		if _, err := tx.CreateBucketIfNotExists([]byte(bucketEveTypes)); err != nil {
-			return fmt.Errorf("create bucket: %s", err)
+		for _, n := range bucketNames {
+			if _, err := tx.CreateBucketIfNotExists([]byte(n)); err != nil {
+				return fmt.Errorf("create bucket %s: %s", n, err)
+			}
 		}
 		return nil
 	}); err != nil {
@@ -58,7 +51,7 @@ func (st *Storage) Init() error {
 func (st *Storage) Clear() (int, error) {
 	var n int
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		for _, name := range buckets {
+		for _, name := range bucketNames {
 			b := tx.Bucket([]byte(name))
 			if b == nil {
 				return fmt.Errorf("bucket does not exist: %s", name)
@@ -145,7 +138,7 @@ func (st *Storage) ListEveCategories() ([]EveCategory, error) {
 	return listEveObjects[EveCategory](st, bucketEveCategories)
 }
 
-func (st *Storage) ListFreshEveCategoriesByID(ids ...int32) ([]EveCategory, []int32, error) {
+func (st *Storage) ListFreshEveCategoriesByID(ids []int32) ([]EveCategory, []int32, error) {
 	return listFreshEveObjectsByID[EveCategory](st, bucketEveCategories, ids)
 }
 
@@ -157,7 +150,7 @@ func (st *Storage) ListEveGroups() ([]EveGroup, error) {
 	return listEveObjects[EveGroup](st, bucketEveGroups)
 }
 
-func (st *Storage) ListFreshEveGroupsByID(ids ...int32) ([]EveGroup, []int32, error) {
+func (st *Storage) ListFreshEveGroupsByID(ids []int32) ([]EveGroup, []int32, error) {
 	return listFreshEveObjectsByID[EveGroup](st, bucketEveGroups, ids)
 }
 
@@ -177,11 +170,12 @@ func (st *Storage) UpdateOrCreateEveTypes(objs []EveType) error {
 	return updateOrCreateEveObjects(st, bucketEveTypes, objs)
 }
 
-type Identifiable interface {
+type EveObject interface {
 	ID() int32
+	IsStale() bool
 }
 
-func listEveObjects[T Identifiable](st *Storage, bucket string) ([]T, error) {
+func listEveObjects[T EveObject](st *Storage, bucket string) ([]T, error) {
 	objs := make([]T, 0)
 	if err := st.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
@@ -205,12 +199,7 @@ func listEveObjects[T Identifiable](st *Storage, bucket string) ([]T, error) {
 	return objs, nil
 }
 
-type IdentifiableAndStaleness interface {
-	Identifiable
-	IsStale() bool
-}
-
-func listFreshEveObjectsByID[T IdentifiableAndStaleness](st *Storage, bucket string, ids []int32) ([]T, []int32, error) {
+func listFreshEveObjectsByID[T EveObject](st *Storage, bucket string, ids []int32) ([]T, []int32, error) {
 	notFound := make([]int32, 0)
 	objs := make([]T, 0)
 	if err := st.db.View(func(tx *bolt.Tx) error {
@@ -242,7 +231,7 @@ func listFreshEveObjectsByID[T IdentifiableAndStaleness](st *Storage, bucket str
 	return objs, notFound, nil
 }
 
-func updateOrCreateEveObjects[T Identifiable](st *Storage, bucket string, objs []T) error {
+func updateOrCreateEveObjects[T EveObject](st *Storage, bucket string, objs []T) error {
 	if len(objs) == 0 {
 		return nil
 	}
