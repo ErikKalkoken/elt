@@ -75,6 +75,20 @@ func (o EveCategory) IsStale() bool {
 	return o.Timestamp.Before(time.Now().UTC().Add(-eveTypeTimeout))
 }
 
+type EveCharacter struct {
+	CharacterID int32     `json:"character_id"`
+	Name        string    `json:"name"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+func (o EveCharacter) ID() int32 {
+	return o.CharacterID
+}
+
+func (o EveCharacter) IsStale() bool {
+	return o.Timestamp.Before(time.Now().UTC().Add(-defaultTimeout))
+}
+
 type EveGroup struct {
 	CategoryID int32     `json:"category_id"`
 	GroupID    int32     `json:"group_id"`

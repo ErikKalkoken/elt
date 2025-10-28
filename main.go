@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"os"
@@ -30,22 +31,26 @@ var ErrNotFound = errors.New("not found")
 var Version = "0.1.0"
 
 func main() {
-	exitWithError := func(err error) {
-		fmt.Println("ERROR: " + err.Error())
+	err := run(os.Args, os.Stdin, os.Stdout)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	dbFilepath, err := xdg.CacheFile("everef/cache.db")
+}
+
+func run(args []string, _ io.Reader, stdout io.Writer) error {
+	dbFilepath, err := xdg.CacheFile(appName + "/cache.db")
 	if err != nil {
-		exitWithError(err)
+		return err
 	}
 	db, err := bolt.Open(dbFilepath, 0600, nil)
 	if err != nil {
-		exitWithError(err)
+		return err
 	}
 	defer db.Close()
 	st := NewStorage(db)
 	if err := st.Init(); err != nil {
-		exitWithError(err)
+		return err
 	}
 
 	rhc := retryablehttp.NewClient()
@@ -53,7 +58,7 @@ func main() {
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, userAgentEmail, sourceURL)
 	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	app := NewApp(esiClient, st)
+	app := NewApp(esiClient, st, stdout)
 
 	cmd := &cli.Command{
 		Usage:   "A command line tool for getting information about Eve Online objects.",
@@ -98,18 +103,6 @@ func main() {
 				},
 			},
 			{
-				Name:   "types",
-				Usage:  "show types",
-				Action: app.ResolveTypes,
-				Arguments: []cli.Argument{
-					&cli.Int32Args{
-						Name: "ID",
-						Min:  1,
-						Max:  -1,
-					},
-				},
-			},
-			{
 				Name:  "system",
 				Usage: "system utilities",
 				Commands: []*cli.Command{
@@ -135,9 +128,10 @@ func main() {
 			},
 		},
 	}
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		exitWithError(err)
+	if err := cmd.Run(context.Background(), args); err != nil {
+		return err
 	}
+	return nil
 }
 
 func setLogLevel(cmd *cli.Command) error {

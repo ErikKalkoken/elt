@@ -10,12 +10,19 @@ import (
 
 const (
 	bucketEveCategories = "eve_categories"
+	bucketEveCharacters = "eve_characters"
 	bucketEveEntities   = "eve_entities"
 	bucketEveGroups     = "eve_groups"
 	bucketEveTypes      = "eve_types"
 )
 
-var buckets = []string{bucketEveEntities, bucketEveTypes, bucketEveGroups, bucketEveCategories}
+var buckets = []string{
+	bucketEveCategories,
+	bucketEveCharacters,
+	bucketEveEntities,
+	bucketEveTypes,
+	bucketEveGroups,
+}
 
 type Storage struct {
 	db *bolt.DB
@@ -112,6 +119,18 @@ func (st *Storage) ListFreshEveEntitiesByName(names []string) ([]EveEntity, erro
 		return nil, err
 	}
 	return objs, nil
+}
+
+func (st *Storage) ListEveCharacters() ([]EveCharacter, error) {
+	return listEveObjects[EveCharacter](st, bucketEveCharacters)
+}
+
+func (st *Storage) ListFreshEveCharactersByID(ids []int32) ([]EveCharacter, []int32, error) {
+	return listFreshEveObjectsByID[EveCharacter](st, bucketEveCharacters, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveCharacters(objs []EveCharacter) error {
+	return updateOrCreateEveObjects(st, bucketEveCharacters, objs)
 }
 
 func (st *Storage) ListEveEntities() ([]EveEntity, error) {

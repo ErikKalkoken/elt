@@ -5,9 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
-	"os"
 	"slices"
 	"time"
 
@@ -26,12 +26,14 @@ const (
 
 type App struct {
 	esiClient *goesi.APIClient
+	out       io.Writer
 	st        *Storage
 }
 
-func NewApp(esiClient *goesi.APIClient, st *Storage) App {
+func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
 	a := App{
 		esiClient: esiClient,
+		out:       out,
 		st:        st,
 	}
 	return a
@@ -42,8 +44,8 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Entities")
-	printTableWithSort([]string{"ID", "Name", "Category", "Timeout"}, entities, func(ee EveEntity) []any {
+	fmt.Fprintln(a.out, "Entities")
+	printTableWithSort(a.out, []string{"ID", "Name", "Category", "Timeout"}, entities, func(ee EveEntity) []any {
 		return []any{ee.EntityID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
 	})
 
@@ -51,8 +53,8 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Categories")
-	printTableWithSort([]string{"ID", "Name", "Timestamp"}, categories, func(o EveCategory) []any {
+	fmt.Fprintln(a.out, "Categories")
+	printTableWithSort(a.out, []string{"ID", "Name", "Timestamp"}, categories, func(o EveCategory) []any {
 		return []any{o.CategoryID, o.Name, o.Timestamp.Format(time.RFC3339)}
 	})
 
@@ -60,8 +62,8 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Groups")
-	printTableWithSort([]string{"ID", "Name", "CategoryID", "Timestamp"}, groups, func(o EveGroup) []any {
+	fmt.Fprintln(a.out, "Groups")
+	printTableWithSort(a.out, []string{"ID", "Name", "CategoryID", "Timestamp"}, groups, func(o EveGroup) []any {
 		return []any{o.GroupID, o.Name, o.CategoryID, o.Timestamp.Format(time.RFC3339)}
 	})
 
@@ -69,8 +71,8 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Types")
-	printTableWithSort([]string{"ID", "Name", "GroupID", "Timestamp"}, types, func(o EveType) []any {
+	fmt.Fprintln(a.out, "Types")
+	printTableWithSort(a.out, []string{"ID", "Name", "GroupID", "Timestamp"}, types, func(o EveType) []any {
 		return []any{o.TypeID, o.Name, o.GroupID, o.Timestamp.Format(time.RFC3339)}
 	})
 	return nil
@@ -81,7 +83,7 @@ func (a App) ClearCache(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%d objects deleted\n", n)
+	fmt.Fprintf(a.out, "%d objects deleted\n", n)
 	return nil
 }
 
@@ -102,9 +104,14 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 		category2IDs[e.Category] = append(category2IDs[e.Category], e.ID())
 	}
 	for _, c := range slices.Sorted(maps.Keys(category2IDs)) {
-		fmt.Println(c.Display() + ":")
+		fmt.Fprintln(a.out, c.Display()+":")
 		ids := category2IDs[c]
 		switch c {
+		case Character:
+			err := a.fetchAndPrintCharacters(ids)
+			if err != nil {
+				return err
+			}
 		case InventoryType:
 			err := a.fetchAndPrintTypes(ids)
 			if err != nil {
@@ -114,7 +121,7 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 			entities2 := slices.DeleteFunc(entities, func(o EveEntity) bool {
 				return o.Category != Invalid
 			})
-			printTableWithSort([]string{"ID", "Name", "Category"}, entities2, func(o EveEntity) []any {
+			printTableWithSort(a.out, []string{"ID", "Name", "Category"}, entities2, func(o EveEntity) []any {
 				return []any{o.EntityID, o.Name, o.Category.Display()}
 			})
 
@@ -123,7 +130,7 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 			if err != nil {
 				return err
 			}
-			printTableWithSort([]string{"ID", "Name", "Category"}, entities, func(o EveEntity) []any {
+			printTableWithSort(a.out, []string{"ID", "Name", "Category"}, entities, func(o EveEntity) []any {
 				return []any{o.EntityID, o.Name, o.Category.Display()}
 			})
 		}
@@ -349,11 +356,39 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func (a App) ResolveTypes(ctx context.Context, cmd *cli.Command) error {
-	if err := a.fetchAndPrintTypes(cmd.Int32Args("ID")); err != nil {
+func (a App) fetchAndPrintCharacters(ids []int32) error {
+	characters, err := a.fetchCharacters(ids)
+	if err != nil {
 		return err
 	}
+	groupIDs := make([]int32, 0)
+	for _, et := range characters {
+		groupIDs = append(groupIDs, et.GroupID)
+	}
+	groups, err := a.fetchGroups(groupIDs)
+	if err != nil {
+		return err
+	}
+	categoryIDs := make([]int32, 0)
+	for _, eg := range groups {
+		categoryIDs = append(categoryIDs, eg.CategoryID)
+	}
+	categories, err := a.fetchCategories(categoryIDs)
+	if err != nil {
+		return err
+	}
+	categoryLookup := makeLookupMap(categories)
+	groupLookup := makeLookupMap(groups)
+	printTableWithSort(a.out, []string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"}, characters, func(o EveType) []any {
+		group := groupLookup[o.GroupID]
+		category := categoryLookup[group.CategoryID]
+		return []any{o.TypeID, o.Name, group.GroupID, group.Name, category.CategoryID, category.Name, o.Published}
+	})
 	return nil
+}
+
+func (a App) fetchCharacters(ids []int32) ([]EveType, error) {
+	return nil, nil
 }
 
 func (a App) fetchAndPrintTypes(ids []int32) error {
@@ -379,7 +414,7 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 	}
 	categoryLookup := makeLookupMap(categories)
 	groupLookup := makeLookupMap(groups)
-	printTableWithSort([]string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"}, types, func(o EveType) []any {
+	printTableWithSort(a.out, []string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"}, types, func(o EveType) []any {
 		group := groupLookup[o.GroupID]
 		category := categoryLookup[group.CategoryID]
 		return []any{o.TypeID, o.Name, group.GroupID, group.Name, category.CategoryID, category.Name, o.Published}
@@ -516,6 +551,40 @@ func makeLookupMap[T Identifiable](objs []T) map[int32]T {
 	return m
 }
 
+func fetchObjects[X any, Y Identifiable](ids []int32, fetcherStorage func([]int32) ([]Y, []int32, error), fetcherAPI func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y, storer func([]Y) error) ([]Y, error) {
+	objsLocal, missing, err := fetcherStorage(sliceUnique(ids))
+	if err != nil {
+		return nil, err
+	}
+	objsRemote := make([]Y, len(missing))
+	g := new(errgroup.Group)
+	for i, id := range missing {
+		g.Go(func() error {
+			x, r, err := fetcherAPI(id)
+			if err != nil {
+				if r != nil && r.StatusCode == http.StatusNotFound {
+					objsRemote[i] = invalid(id)
+					return nil
+				}
+				return err
+			}
+			objsRemote[i] = mapper(x)
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if len(objsRemote) > 0 {
+		err := storer(objsRemote)
+		if err != nil {
+			return nil, err
+		}
+	}
+	objs := slices.Concat(objsLocal, objsRemote)
+	return objs, nil
+}
+
 func fetchObjectsFromAPI[X any, Y Identifiable](ids []int32, fetcher func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y) ([]Y, error) {
 	ids2 := sliceUnique(ids)
 	objs := make([]Y, len(ids2))
@@ -540,7 +609,7 @@ func fetchObjectsFromAPI[X any, Y Identifiable](ids []int32, fetcher func(id int
 	return objs, nil
 }
 
-func printTableWithSort[T Identifiable](headers []string, objs []T, makeRow func(T) []any) {
+func printTableWithSort[T Identifiable](out io.Writer, headers []string, objs []T, makeRow func(T) []any) {
 	slices.SortFunc(objs, func(a, b T) int {
 		return cmp.Compare(a.ID(), b.ID())
 	})
@@ -548,7 +617,7 @@ func printTableWithSort[T Identifiable](headers []string, objs []T, makeRow func
 	for _, o := range objs {
 		rows = append(rows, makeRow(o))
 	}
-	t := tablewriter.NewTable(os.Stdout,
+	t := tablewriter.NewTable(out,
 		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
 			Settings: tw.Settings{Separators: tw.Separators{BetweenRows: tw.On}},
 		})),
