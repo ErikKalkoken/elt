@@ -361,61 +361,62 @@ func (a App) fetchAndPrintCharacters(ids []int32) error {
 	if err != nil {
 		return err
 	}
-	groupIDs := make([]int32, 0)
-	for _, et := range characters {
-		groupIDs = append(groupIDs, et.GroupID)
-	}
-	groups, err := a.fetchGroups(groupIDs)
-	if err != nil {
-		return err
-	}
-	categoryIDs := make([]int32, 0)
-	for _, eg := range groups {
-		categoryIDs = append(categoryIDs, eg.CategoryID)
-	}
-	categories, err := a.fetchCategories(categoryIDs)
-	if err != nil {
-		return err
-	}
-	categoryLookup := makeLookupMap(categories)
-	groupLookup := makeLookupMap(groups)
-	printTableWithSort(a.out, []string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"}, characters, func(o EveType) []any {
-		group := groupLookup[o.GroupID]
-		category := categoryLookup[group.CategoryID]
-		return []any{o.TypeID, o.Name, group.GroupID, group.Name, category.CategoryID, category.Name, o.Published}
+	// groupIDs := make([]int32, 0)
+	// for _, et := range characters {
+	// 	groupIDs = append(groupIDs, et.GroupID)
+	// }
+	// groups, err := a.fetchGroups(groupIDs)
+	// if err != nil {
+	// 	return err
+	// }
+	// categoryIDs := make([]int32, 0)
+	// for _, eg := range groups {
+	// 	categoryIDs = append(categoryIDs, eg.CategoryID)
+	// }
+	// categories, err := a.fetchCategories(categoryIDs)
+	// if err != nil {
+	// 	return err
+	// }
+	// categoryLookup := makeLookupMap(categories)
+	// groupLookup := makeLookupMap(groups)
+	printTableWithSort(a.out, []string{"ID", "Name", "CorporationID", "CorporationName", "AllianceID", "AllianceName"}, characters, func(o EveCharacter) []any {
+		// group := groupLookup[o.GroupID]
+		// category := categoryLookup[group.CategoryID]
+		return []any{o.ID(), o.Name, o.CorporationID, "", o.AllianceID, ""}
 	})
 	return nil
 }
 
-func (a App) fetchCharacters(ids []int32) ([]EveType, error) {
-	return nil, nil
+func (a App) fetchCharacters(ids []int32) ([]EveCharacter, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveCharactersByID,
+		func(id int32) (esi.GetCharactersCharacterIdOk, *http.Response, error) {
+			return a.esiClient.ESI.CharacterApi.GetCharactersCharacterId(context.Background(), id, nil)
+		},
+		func(id int32, x esi.GetCharactersCharacterIdOk) EveCharacter {
+			return EveCharacter{
+				AllianceID:    x.AllianceId,
+				CharacterID:   id,
+				CorporationID: x.CorporationId,
+				Name:          x.Name,
+				Timestamp:     now(),
+			}
+		},
+		func(id int32) EveCharacter {
+			return EveCharacter{
+				CharacterID: id,
+				Name:        nameInvalid,
+				Timestamp:   now(),
+			}
+		},
+		a.st.UpdateOrCreateEveCharacters,
+	)
+	return oo, err
 }
 
 func (a App) fetchAndPrintTypes(ids []int32) error {
-	types, err := fetchObjects(
-		ids,
-		a.st.ListFreshEveTypesByID,
-		func(id int32) (esi.GetUniverseTypesTypeIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseTypesTypeId(context.Background(), id, nil)
-		},
-		func(x esi.GetUniverseTypesTypeIdOk) EveType {
-			return EveType{
-				GroupID:   x.GroupId,
-				TypeID:    x.TypeId,
-				Name:      x.Name,
-				Published: x.Published,
-				Timestamp: now(),
-			}
-		},
-		func(id int32) EveType {
-			return EveType{
-				TypeID:    id,
-				Name:      nameInvalid,
-				Timestamp: now(),
-			}
-		},
-		a.st.UpdateOrCreateEveTypes,
-	)
+	types, err := a.fetchTypes(ids)
 	if err != nil {
 		return err
 	}
@@ -445,6 +446,34 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 	return nil
 }
 
+func (a App) fetchTypes(ids []int32) ([]EveType, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveTypesByID,
+		func(id int32) (esi.GetUniverseTypesTypeIdOk, *http.Response, error) {
+			return a.esiClient.ESI.UniverseApi.GetUniverseTypesTypeId(context.Background(), id, nil)
+		},
+		func(id int32, x esi.GetUniverseTypesTypeIdOk) EveType {
+			return EveType{
+				GroupID:   x.GroupId,
+				TypeID:    id,
+				Name:      x.Name,
+				Published: x.Published,
+				Timestamp: now(),
+			}
+		},
+		func(id int32) EveType {
+			return EveType{
+				TypeID:    id,
+				Name:      nameInvalid,
+				Timestamp: now(),
+			}
+		},
+		a.st.UpdateOrCreateEveTypes,
+	)
+	return oo, err
+}
+
 func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
 	oo, err := fetchObjects(
 		ids,
@@ -452,9 +481,9 @@ func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
 		func(id int32) (esi.GetUniverseCategoriesCategoryIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseCategoriesCategoryId(context.Background(), id, nil)
 		},
-		func(x esi.GetUniverseCategoriesCategoryIdOk) EveCategory {
+		func(id int32, x esi.GetUniverseCategoriesCategoryIdOk) EveCategory {
 			return EveCategory{
-				CategoryID: x.CategoryId,
+				CategoryID: id,
 				Name:       x.Name,
 				Published:  x.Published,
 				Timestamp:  now(),
@@ -479,10 +508,10 @@ func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
 		func(id int32) (esi.GetUniverseGroupsGroupIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseGroupsGroupId(context.Background(), id, nil)
 		},
-		func(x esi.GetUniverseGroupsGroupIdOk) EveGroup {
+		func(id int32, x esi.GetUniverseGroupsGroupIdOk) EveGroup {
 			return EveGroup{
 				CategoryID: x.CategoryId,
-				GroupID:    x.GroupId,
+				GroupID:    id,
 				Name:       x.Name,
 				Published:  x.Published,
 				Timestamp:  now(),
@@ -516,7 +545,7 @@ func makeLookupMap[T EveObject](objs []T) map[int32]T {
 	return m
 }
 
-func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) ([]Y, []int32, error), fetcherAPI func(id int32) (X, *http.Response, error), mapper func(x X) Y, invalid func(id int32) Y, storer func([]Y) error) ([]Y, error) {
+func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) ([]Y, []int32, error), fetcherAPI func(id int32) (X, *http.Response, error), mapper func(id int32, x X) Y, invalid func(id int32) Y, storer func([]Y) error) ([]Y, error) {
 	objsLocal, missing, err := fetcherStorage(sliceUnique(ids))
 	if err != nil {
 		return nil, err
@@ -533,7 +562,7 @@ func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) 
 				}
 				return err
 			}
-			objsRemote[i] = mapper(x)
+			objsRemote[i] = mapper(id, x)
 			return nil
 		})
 	}

@@ -76,9 +76,11 @@ func (o EveCategory) IsStale() bool {
 }
 
 type EveCharacter struct {
-	CharacterID int32     `json:"character_id"`
-	Name        string    `json:"name"`
-	Timestamp   time.Time `json:"timestamp"`
+	AllianceID    int32     `json:"alliance_id"`
+	CharacterID   int32     `json:"character_id"`
+	CorporationID int32     `json:"corporation_id"`
+	Name          string    `json:"name"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 func (o EveCharacter) ID() int32 {
