@@ -91,6 +91,35 @@ func (o EveCharacter) IsStale() bool {
 	return o.Timestamp.Before(time.Now().UTC().Add(-defaultTimeout))
 }
 
+type EveCorporation struct {
+	AllianceID    int32     `json:"alliance_id"`
+	CorporationID int32     `json:"corporation_id"`
+	Name          string    `json:"name"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+func (o EveCorporation) ID() int32 {
+	return o.CorporationID
+}
+
+func (o EveCorporation) IsStale() bool {
+	return o.Timestamp.Before(time.Now().UTC().Add(-defaultTimeout))
+}
+
+type EveAlliance struct {
+	AllianceID int32     `json:"alliance_id"`
+	Name       string    `json:"name"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+func (o EveAlliance) ID() int32 {
+	return o.AllianceID
+}
+
+func (o EveAlliance) IsStale() bool {
+	return o.Timestamp.Before(time.Now().UTC().Add(-defaultTimeout))
+}
+
 type EveGroup struct {
 	CategoryID int32     `json:"category_id"`
 	GroupID    int32     `json:"group_id"`

@@ -40,7 +40,7 @@ func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
 }
 
 func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
-	entities, err := a.st.ListEveEntities()
+	entities, err := a.st.ListEveEntity()
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 		return []any{ee.EntityID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
 	})
 
-	categories, err := a.st.ListEveCategories()
+	categories, err := a.st.ListEveCategory()
 	if err != nil {
 		return err
 	}
@@ -58,7 +58,7 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 		return []any{o.CategoryID, o.Name, o.Timestamp.Format(time.RFC3339)}
 	})
 
-	groups, err := a.st.ListEveGroups()
+	groups, err := a.st.ListEveGroup()
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 		return []any{o.GroupID, o.Name, o.CategoryID, o.Timestamp.Format(time.RFC3339)}
 	})
 
-	types, err := a.st.ListEveTypes()
+	types, err := a.st.ListEveType()
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 			})
 
 		default:
-			entities, _, err := a.st.ListFreshEveEntitiesByID(ids)
+			entities, _, err := a.st.ListFreshEveEntityByID(ids)
 			if err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 }
 
 func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
-	entities1, unknownIDs, err := a.st.ListFreshEveEntitiesByID(ids)
+	entities1, unknownIDs, err := a.st.ListFreshEveEntityByID(ids)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := a.st.UpdateOrCreateEveEntities(entities2); err != nil {
+	if err := a.st.UpdateOrCreateEveEntity(entities2); err != nil {
 		return nil, err
 	}
 	m := make(map[int32]EveEntity)
@@ -350,7 +350,7 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 	entities2 := slices.DeleteFunc(slices.Clone(entities), func(o EveEntity) bool {
 		return o.ID() == 0
 	})
-	if err := a.st.UpdateOrCreateEveEntities(entities2); err != nil {
+	if err := a.st.UpdateOrCreateEveEntity(entities2); err != nil {
 		return nil, err
 	}
 	return entities, nil
@@ -390,7 +390,7 @@ func (a App) fetchAndPrintCharacters(ids []int32) error {
 func (a App) fetchCharacters(ids []int32) ([]EveCharacter, error) {
 	oo, err := fetchObjects(
 		ids,
-		a.st.ListFreshEveCharactersByID,
+		a.st.ListFreshEveCharacterByID,
 		func(id int32) (esi.GetCharactersCharacterIdOk, *http.Response, error) {
 			return a.esiClient.ESI.CharacterApi.GetCharactersCharacterId(context.Background(), id, nil)
 		},
@@ -410,10 +410,37 @@ func (a App) fetchCharacters(ids []int32) ([]EveCharacter, error) {
 				Timestamp:   now(),
 			}
 		},
-		a.st.UpdateOrCreateEveCharacters,
+		a.st.UpdateOrCreateEveCharacter,
 	)
 	return oo, err
 }
+
+// func (a App) fetchCorporations(ids []int32) ([]EveCorporation, error) {
+// 	oo, err := fetchObjects(
+// 		ids,
+// 		a.st.ListFreshEveCorporationsByID,
+// 		func(id int32) (esi.GetCorporationsCorporationIdOk, *http.Response, error) {
+// 			return a.esiClient.ESI.CorporationApi.GetCorporationsCorporationId(context.Background(), id, nil)
+// 		},
+// 		func(id int32, x esi.GetCorporationsCorporationIdOk) EveCorporation {
+// 			return EveCorporation{
+// 				AllianceID:    x.AllianceId,
+// 				CorporationID: id,
+// 				Name:          x.Name,
+// 				Timestamp:     now(),
+// 			}
+// 		},
+// 		func(id int32) EveCorporation {
+// 			return EveCorporation{
+// 				CorporationID: id,
+// 				Name:          nameInvalid,
+// 				Timestamp:     now(),
+// 			}
+// 		},
+// 		a.st.UpdateOrCreateEveCorporations,
+// 	)
+// 	return oo, err
+// }
 
 func (a App) fetchAndPrintTypes(ids []int32) error {
 	types, err := a.fetchTypes(ids)
@@ -449,7 +476,7 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 func (a App) fetchTypes(ids []int32) ([]EveType, error) {
 	oo, err := fetchObjects(
 		ids,
-		a.st.ListFreshEveTypesByID,
+		a.st.ListFreshEveTypeByID,
 		func(id int32) (esi.GetUniverseTypesTypeIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseTypesTypeId(context.Background(), id, nil)
 		},
@@ -469,7 +496,7 @@ func (a App) fetchTypes(ids []int32) ([]EveType, error) {
 				Timestamp: now(),
 			}
 		},
-		a.st.UpdateOrCreateEveTypes,
+		a.st.UpdateOrCreateEveType,
 	)
 	return oo, err
 }
@@ -477,7 +504,7 @@ func (a App) fetchTypes(ids []int32) ([]EveType, error) {
 func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
 	oo, err := fetchObjects(
 		ids,
-		a.st.ListFreshEveCategoriesByID,
+		a.st.ListFreshEveCategoryByID,
 		func(id int32) (esi.GetUniverseCategoriesCategoryIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseCategoriesCategoryId(context.Background(), id, nil)
 		},
@@ -496,7 +523,7 @@ func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
 				Timestamp:  now(),
 			}
 		},
-		a.st.UpdateOrCreateEveCategories,
+		a.st.UpdateOrCreateEveCategory,
 	)
 	return oo, err
 }
@@ -504,7 +531,7 @@ func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
 func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
 	oo, err := fetchObjects(
 		ids,
-		a.st.ListFreshEveGroupsByID,
+		a.st.ListFreshEveGroupByID,
 		func(id int32) (esi.GetUniverseGroupsGroupIdOk, *http.Response, error) {
 			return a.esiClient.ESI.UniverseApi.GetUniverseGroupsGroupId(context.Background(), id, nil)
 		},
@@ -524,7 +551,7 @@ func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
 				Timestamp: now(),
 			}
 		},
-		a.st.UpdateOrCreateEveGroups,
+		a.st.UpdateOrCreateEveGroup,
 	)
 	return oo, err
 }

@@ -41,7 +41,7 @@ func TestStorageEveEntites(t *testing.T) {
 		if o.Category == Undefined {
 			o.Category = Character
 		}
-		err := st.UpdateOrCreateEveEntities([]EveEntity{o})
+		err := st.UpdateOrCreateEveEntity([]EveEntity{o})
 		if err != nil {
 			panic(err)
 		}
@@ -52,7 +52,7 @@ func TestStorageEveEntites(t *testing.T) {
 		o1 := createEveEntity()
 		o2 := createEveEntity()
 		o3 := createEveEntity()
-		ee, err := st.ListEveEntities()
+		ee, err := st.ListEveEntity()
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -69,7 +69,7 @@ func TestStorageEveEntites(t *testing.T) {
 		createEveEntity(EveEntity{EntityID: 2})
 		createEveEntity(EveEntity{EntityID: 3})
 		createEveEntity(EveEntity{EntityID: 4, Timestamp: time.Now().Add(-1000 * time.Hour)})
-		ee, missing, err := st.ListFreshEveEntitiesByID([]int32{1, 3, 4, 5})
+		ee, missing, err := st.ListFreshEveEntityByID([]int32{1, 3, 4, 5})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func TestStorageEveEntites(t *testing.T) {
 	t.Run("should return error when trying to create object with ID 0", func(t *testing.T) {
 		st.MustClear()
 		o := EveEntity{EntityID: 0, Name: "abc", Category: Character}
-		err := st.UpdateOrCreateEveEntities([]EveEntity{o})
+		err := st.UpdateOrCreateEveEntity([]EveEntity{o})
 		assert.Error(t, err)
 	})
 }
@@ -132,7 +132,7 @@ func TestStorageEveTypes(t *testing.T) {
 		if o.Name == "" {
 			o.Name = fmt.Sprintf("Type #%d", o.TypeID)
 		}
-		err := st.UpdateOrCreateEveTypes([]EveType{o})
+		err := st.UpdateOrCreateEveType([]EveType{o})
 		if err != nil {
 			panic(err)
 		}
@@ -142,7 +142,7 @@ func TestStorageEveTypes(t *testing.T) {
 		st.MustClear()
 		o1 := createEveType()
 		o2 := createEveType()
-		oo, err := st.ListEveTypes()
+		oo, err := st.ListEveType()
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -158,7 +158,7 @@ func TestStorageEveTypes(t *testing.T) {
 		createEveType(EveType{TypeID: 1})
 		createEveType(EveType{TypeID: 2})
 		createEveType(EveType{TypeID: 3})
-		ee, missing, err := st.ListFreshEveTypesByID([]int32{1, 3, 4})
+		ee, missing, err := st.ListFreshEveTypeByID([]int32{1, 3, 4})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}

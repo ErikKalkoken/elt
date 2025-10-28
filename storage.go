@@ -8,20 +8,22 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+//go:generate go run ./tools/genstorage EveType EveGroup EveCategory EveEntity EveCharacter
+
 const (
-	bucketEveCategories = "eve_categories"
-	bucketEveCharacters = "eve_characters"
-	bucketEveEntities   = "eve_entities"
-	bucketEveGroups     = "eve_groups"
-	bucketEveTypes      = "eve_types"
+	bucketEveCategory  = "eve_categories"
+	bucketEveCharacter = "eve_characters"
+	bucketEveEntity    = "eve_entities"
+	bucketEveGroup     = "eve_groups"
+	bucketEveType      = "eve_types"
 )
 
 var bucketNames = []string{
-	bucketEveCategories,
-	bucketEveCharacters,
-	bucketEveEntities,
-	bucketEveTypes,
-	bucketEveGroups,
+	bucketEveCategory,
+	bucketEveCharacter,
+	bucketEveEntity,
+	bucketEveType,
+	bucketEveGroup,
 }
 
 type Storage struct {
@@ -80,10 +82,6 @@ func (st *Storage) MustClear() int {
 	return n
 }
 
-func (st *Storage) ListFreshEveEntitiesByID(ids []int32) ([]EveEntity, []int32, error) {
-	return listFreshEveObjectsByID[EveEntity](st, bucketEveEntities, ids)
-}
-
 func (st *Storage) ListFreshEveEntitiesByName(names []string) ([]EveEntity, error) {
 	isMatch := make(map[string]bool)
 	for _, n := range names {
@@ -91,9 +89,9 @@ func (st *Storage) ListFreshEveEntitiesByName(names []string) ([]EveEntity, erro
 	}
 	objs := make([]EveEntity, 0)
 	if err := st.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketEveEntities))
+		b := tx.Bucket([]byte(bucketEveEntity))
 		if b == nil {
-			return fmt.Errorf("bucket does not exist: %s", bucketEveEntities)
+			return fmt.Errorf("bucket does not exist: %s", bucketEveEntity)
 		}
 		if err := b.ForEach(func(_, v []byte) error {
 			var o EveEntity
@@ -112,62 +110,6 @@ func (st *Storage) ListFreshEveEntitiesByName(names []string) ([]EveEntity, erro
 		return nil, err
 	}
 	return objs, nil
-}
-
-func (st *Storage) ListEveCharacters() ([]EveCharacter, error) {
-	return listEveObjects[EveCharacter](st, bucketEveCharacters)
-}
-
-func (st *Storage) ListFreshEveCharactersByID(ids []int32) ([]EveCharacter, []int32, error) {
-	return listFreshEveObjectsByID[EveCharacter](st, bucketEveCharacters, ids)
-}
-
-func (st *Storage) UpdateOrCreateEveCharacters(objs []EveCharacter) error {
-	return updateOrCreateEveObjects(st, bucketEveCharacters, objs)
-}
-
-func (st *Storage) ListEveEntities() ([]EveEntity, error) {
-	return listEveObjects[EveEntity](st, bucketEveEntities)
-}
-
-func (st *Storage) UpdateOrCreateEveEntities(objs []EveEntity) error {
-	return updateOrCreateEveObjects(st, bucketEveEntities, objs)
-}
-
-func (st *Storage) ListEveCategories() ([]EveCategory, error) {
-	return listEveObjects[EveCategory](st, bucketEveCategories)
-}
-
-func (st *Storage) ListFreshEveCategoriesByID(ids []int32) ([]EveCategory, []int32, error) {
-	return listFreshEveObjectsByID[EveCategory](st, bucketEveCategories, ids)
-}
-
-func (st *Storage) UpdateOrCreateEveCategories(objs []EveCategory) error {
-	return updateOrCreateEveObjects(st, bucketEveCategories, objs)
-}
-
-func (st *Storage) ListEveGroups() ([]EveGroup, error) {
-	return listEveObjects[EveGroup](st, bucketEveGroups)
-}
-
-func (st *Storage) ListFreshEveGroupsByID(ids []int32) ([]EveGroup, []int32, error) {
-	return listFreshEveObjectsByID[EveGroup](st, bucketEveGroups, ids)
-}
-
-func (st *Storage) UpdateOrCreateEveGroups(objs []EveGroup) error {
-	return updateOrCreateEveObjects(st, bucketEveGroups, objs)
-}
-
-func (st *Storage) ListEveTypes() ([]EveType, error) {
-	return listEveObjects[EveType](st, bucketEveTypes)
-}
-
-func (st *Storage) ListFreshEveTypesByID(ids []int32) ([]EveType, []int32, error) {
-	return listFreshEveObjectsByID[EveType](st, bucketEveTypes, ids)
-}
-
-func (st *Storage) UpdateOrCreateEveTypes(objs []EveType) error {
-	return updateOrCreateEveObjects(st, bucketEveTypes, objs)
 }
 
 type EveObject interface {
