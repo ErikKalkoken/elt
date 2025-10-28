@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/antihax/goesi"
@@ -45,36 +46,52 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	fmt.Fprintln(a.out, "Entities")
-	printTableWithSort(a.out, []string{"ID", "Name", "Category", "Timeout"}, entities, func(ee EveEntity) []any {
-		return []any{ee.EntityID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
-	})
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "Category", "Timeout"},
+		entities,
+		func(ee EveEntity) []any {
+			return []any{ee.EntityID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
+		})
 
 	categories, err := a.st.ListEveCategory()
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(a.out, "Categories")
-	printTableWithSort(a.out, []string{"ID", "Name", "Timestamp"}, categories, func(o EveCategory) []any {
-		return []any{o.CategoryID, o.Name, o.Timestamp.Format(time.RFC3339)}
-	})
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "Timestamp"},
+		categories,
+		func(o EveCategory) []any {
+			return []any{o.CategoryID, o.Name, o.Timestamp.Format(time.RFC3339)}
+		})
 
 	groups, err := a.st.ListEveGroup()
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(a.out, "Groups")
-	printTableWithSort(a.out, []string{"ID", "Name", "CategoryID", "Timestamp"}, groups, func(o EveGroup) []any {
-		return []any{o.GroupID, o.Name, o.CategoryID, o.Timestamp.Format(time.RFC3339)}
-	})
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "CategoryID", "Timestamp"},
+		groups,
+		func(o EveGroup) []any {
+			return []any{o.GroupID, o.Name, o.CategoryID, o.Timestamp.Format(time.RFC3339)}
+		})
 
 	types, err := a.st.ListEveType()
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(a.out, "Types")
-	printTableWithSort(a.out, []string{"ID", "Name", "GroupID", "Timestamp"}, types, func(o EveType) []any {
-		return []any{o.TypeID, o.Name, o.GroupID, o.Timestamp.Format(time.RFC3339)}
-	})
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "GroupID", "Timestamp"},
+		types,
+		func(o EveType) []any {
+			return []any{o.TypeID, o.Name, o.GroupID, o.Timestamp.Format(time.RFC3339)}
+		})
 	return nil
 }
 
@@ -107,32 +124,79 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 		fmt.Fprintln(a.out, c.Display()+":")
 		ids := category2IDs[c]
 		switch c {
-		case Character:
+		case CategoryAgent:
 			err := a.fetchAndPrintCharacters(ids)
 			if err != nil {
 				return err
 			}
-		case InventoryType:
+		case CategoryAlliance:
+			err := a.fetchAndPrintAlliances(ids)
+			if err != nil {
+				return err
+			}
+		case CategoryCharacter:
+			err := a.fetchAndPrintCharacters(ids)
+			if err != nil {
+				return err
+			}
+		case CategoryConstellation:
+			err := a.fetchAndPrintConstellations(ids)
+			if err != nil {
+				return err
+			}
+		case CategoryCorporation:
+			err := a.fetchAndPrintCorporations(ids)
+			if err != nil {
+				return err
+			}
+		case CategoryFaction:
+			err := a.fetchAndPrintFactions(ids)
+			if err != nil {
+				return err
+			}
+		case CategoryInventoryType:
 			err := a.fetchAndPrintTypes(ids)
 			if err != nil {
 				return err
 			}
-		case Invalid:
+		case CategoryRegion:
+			err := a.fetchAndPrintRegions(ids)
+			if err != nil {
+				return err
+			}
+		case CategorySolarSystem:
+			err := a.fetchAndPrintSolarSystems(ids)
+			if err != nil {
+				return err
+			}
+		case CategoryStation:
+			err := a.fetchAndPrintStations(ids)
+			if err != nil {
+				return err
+			}
+		case CategoryInvalid:
 			entities2 := slices.DeleteFunc(entities, func(o EveEntity) bool {
-				return o.Category != Invalid
+				return o.Category != CategoryInvalid
 			})
-			printTableWithSort(a.out, []string{"ID", "Name", "Category"}, entities2, func(o EveEntity) []any {
-				return []any{o.EntityID, o.Name, o.Category.Display()}
-			})
+			printTableWithSort(
+				a.out,
+				[]string{"ID", "Name", "Category"},
+				entities2, func(o EveEntity) []any {
+					return []any{o.EntityID, o.Name, o.Category.Display()}
+				})
 
 		default:
 			entities, _, err := a.st.ListFreshEveEntityByID(ids)
 			if err != nil {
 				return err
 			}
-			printTableWithSort(a.out, []string{"ID", "Name", "Category"}, entities, func(o EveEntity) []any {
-				return []any{o.EntityID, o.Name, o.Category.Display()}
-			})
+			printTableWithSort(
+				a.out,
+				[]string{"ID", "Name", "Category"},
+				entities,
+				func(o EveEntity) []any {
+					return []any{o.EntityID, o.Name, o.Category.Display()}
+				})
 		}
 	}
 	return nil
@@ -172,7 +236,7 @@ func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
 			return []EveEntity{{
 				EntityID:  ids[0],
 				Name:      "",
-				Category:  Invalid,
+				Category:  CategoryInvalid,
 				Timestamp: now(),
 			}}, nil
 		}
@@ -216,19 +280,19 @@ func (a App) resolveIDsFromAPI2(ids []int32) ([]EveEntity, error) {
 	}
 	eveEntityCategoryFromESICategory := func(c string) EveEntityCategory {
 		categoryMap := map[string]EveEntityCategory{
-			"alliance":       Alliance,
-			"character":      Character,
-			"corporation":    Corporation,
-			"constellation":  Constellation,
-			"faction":        Faction,
-			"inventory_type": InventoryType,
-			"region":         Region,
-			"solar_system":   SolarSystem,
-			"station":        Station,
+			"alliance":       CategoryAlliance,
+			"character":      CategoryCharacter,
+			"corporation":    CategoryCorporation,
+			"constellation":  CategoryConstellation,
+			"faction":        CategoryFaction,
+			"inventory_type": CategoryInventoryType,
+			"region":         CategoryRegion,
+			"solar_system":   CategorySolarSystem,
+			"station":        CategoryStation,
 		}
 		c2, ok := categoryMap[c]
 		if !ok {
-			return Undefined
+			return CategoryUnknown
 		}
 		return c2
 	}
@@ -308,34 +372,34 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 		found[name] = true
 	}
 	for _, o := range data.Agents {
-		addEntity(o.Id, o.Name, Agent)
+		addEntity(o.Id, o.Name, CategoryAgent)
 	}
 	for _, o := range data.Alliances {
-		addEntity(o.Id, o.Name, Alliance)
+		addEntity(o.Id, o.Name, CategoryAlliance)
 	}
 	for _, o := range data.Characters {
-		addEntity(o.Id, o.Name, Character)
+		addEntity(o.Id, o.Name, CategoryCharacter)
 	}
 	for _, o := range data.Constellations {
-		addEntity(o.Id, o.Name, Constellation)
+		addEntity(o.Id, o.Name, CategoryConstellation)
 	}
 	for _, o := range data.Corporations {
-		addEntity(o.Id, o.Name, Corporation)
+		addEntity(o.Id, o.Name, CategoryCorporation)
 	}
 	for _, o := range data.Factions {
-		addEntity(o.Id, o.Name, Faction)
+		addEntity(o.Id, o.Name, CategoryFaction)
 	}
 	for _, o := range data.InventoryTypes {
-		addEntity(o.Id, o.Name, InventoryType)
+		addEntity(o.Id, o.Name, CategoryInventoryType)
 	}
 	for _, o := range data.Regions {
-		addEntity(o.Id, o.Name, Region)
+		addEntity(o.Id, o.Name, CategoryRegion)
 	}
 	for _, o := range data.Stations {
-		addEntity(o.Id, o.Name, Station)
+		addEntity(o.Id, o.Name, CategoryStation)
 	}
 	for _, o := range data.Systems {
-		addEntity(o.Id, o.Name, SolarSystem)
+		addEntity(o.Id, o.Name, CategorySolarSystem)
 	}
 	for _, n := range names {
 		if found[n] {
@@ -343,7 +407,7 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 		}
 		entities = append(entities, EveEntity{
 			Name:      n,
-			Category:  Invalid,
+			Category:  CategoryInvalid,
 			Timestamp: now(),
 		})
 	}
@@ -361,29 +425,34 @@ func (a App) fetchAndPrintCharacters(ids []int32) error {
 	if err != nil {
 		return err
 	}
-	// groupIDs := make([]int32, 0)
-	// for _, et := range characters {
-	// 	groupIDs = append(groupIDs, et.GroupID)
-	// }
-	// groups, err := a.fetchGroups(groupIDs)
-	// if err != nil {
-	// 	return err
-	// }
-	// categoryIDs := make([]int32, 0)
-	// for _, eg := range groups {
-	// 	categoryIDs = append(categoryIDs, eg.CategoryID)
-	// }
-	// categories, err := a.fetchCategories(categoryIDs)
-	// if err != nil {
-	// 	return err
-	// }
-	// categoryLookup := makeLookupMap(categories)
-	// groupLookup := makeLookupMap(groups)
-	printTableWithSort(a.out, []string{"ID", "Name", "CorporationID", "CorporationName", "AllianceID", "AllianceName"}, characters, func(o EveCharacter) []any {
-		// group := groupLookup[o.GroupID]
-		// category := categoryLookup[group.CategoryID]
-		return []any{o.ID(), o.Name, o.CorporationID, "", o.AllianceID, ""}
-	})
+	corporationIDs := make([]int32, 0)
+	for _, o := range characters {
+		corporationIDs = append(corporationIDs, o.CorporationID)
+	}
+	corporations, err := a.fetchCorporations(corporationIDs)
+	if err != nil {
+		return err
+	}
+	allianceIDs := make([]int32, 0)
+	for _, o := range characters {
+		if o.AllianceID != 0 {
+			allianceIDs = append(allianceIDs, o.AllianceID)
+		}
+	}
+	alliances, err := a.fetchAlliance(allianceIDs)
+	if err != nil {
+		return err
+	}
+	allianceLookup := makeLookupMap(alliances)
+	corporationLookup := makeLookupMap(corporations)
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "CorporationID", "CorporationName", "AllianceID", "AllianceName", "NPC"},
+		characters,
+		func(o EveCharacter) []any {
+			corporationName := corporationLookup[o.CorporationID].Name
+			return []any{o.ID(), o.Name, o.CorporationID, corporationName, idOrEmpty(o.AllianceID), allianceLookup[o.AllianceID].Name, o.IsNPC()}
+		})
 	return nil
 }
 
@@ -415,32 +484,238 @@ func (a App) fetchCharacters(ids []int32) ([]EveCharacter, error) {
 	return oo, err
 }
 
-// func (a App) fetchCorporations(ids []int32) ([]EveCorporation, error) {
-// 	oo, err := fetchObjects(
-// 		ids,
-// 		a.st.ListFreshEveCorporationsByID,
-// 		func(id int32) (esi.GetCorporationsCorporationIdOk, *http.Response, error) {
-// 			return a.esiClient.ESI.CorporationApi.GetCorporationsCorporationId(context.Background(), id, nil)
-// 		},
-// 		func(id int32, x esi.GetCorporationsCorporationIdOk) EveCorporation {
-// 			return EveCorporation{
-// 				AllianceID:    x.AllianceId,
-// 				CorporationID: id,
-// 				Name:          x.Name,
-// 				Timestamp:     now(),
-// 			}
-// 		},
-// 		func(id int32) EveCorporation {
-// 			return EveCorporation{
-// 				CorporationID: id,
-// 				Name:          nameInvalid,
-// 				Timestamp:     now(),
-// 			}
-// 		},
-// 		a.st.UpdateOrCreateEveCorporations,
-// 	)
-// 	return oo, err
-// }
+func (a App) fetchAndPrintCorporations(ids []int32) error {
+	corporations, err := a.fetchCorporations(ids)
+	if err != nil {
+		return err
+	}
+	allianceIDs := make([]int32, 0)
+	for _, o := range corporations {
+		if o.AllianceID != 0 {
+			allianceIDs = append(allianceIDs, o.AllianceID)
+		}
+	}
+	alliances, err := a.fetchAlliance(allianceIDs)
+	if err != nil {
+		return err
+	}
+	allianceLookup := makeLookupMap(alliances)
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "Ticker", "Members", "AllianceID", "AllianceName", "NPC"},
+		corporations,
+		func(o EveCorporation) []any {
+			return []any{o.ID(), o.Name, o.Ticker, o.MemberCount, idOrEmpty(o.AllianceID), allianceLookup[o.AllianceID].Name, o.IsNPC()}
+		})
+	return nil
+}
+
+func (a App) fetchCorporations(ids []int32) ([]EveCorporation, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveCorporationByID,
+		func(id int32) (esi.GetCorporationsCorporationIdOk, *http.Response, error) {
+			return a.esiClient.ESI.CorporationApi.GetCorporationsCorporationId(context.Background(), id, nil)
+		},
+		func(id int32, x esi.GetCorporationsCorporationIdOk) EveCorporation {
+			return EveCorporation{
+				AllianceID:    x.AllianceId,
+				CeoID:         x.CeoId,
+				CorporationID: id,
+				MemberCount:   x.MemberCount,
+				Name:          x.Name,
+				Ticker:        x.Ticker,
+				Timestamp:     now(),
+			}
+		},
+		func(id int32) EveCorporation {
+			return EveCorporation{
+				CorporationID: id,
+				Name:          nameInvalid,
+				Timestamp:     now(),
+			}
+		},
+		a.st.UpdateOrCreateEveCorporation,
+	)
+	return oo, err
+}
+
+func (a App) fetchAndPrintAlliances(ids []int32) error {
+	alliances, err := a.fetchAlliance(ids)
+	if err != nil {
+		return err
+	}
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "Ticker"},
+		alliances,
+		func(o EveAlliance) []any {
+			return []any{o.ID(), o.Name, o.Ticker}
+		})
+	return nil
+}
+
+func (a App) fetchAlliance(ids []int32) ([]EveAlliance, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveAllianceByID,
+		func(id int32) (esi.GetAlliancesAllianceIdOk, *http.Response, error) {
+			return a.esiClient.ESI.AllianceApi.GetAlliancesAllianceId(context.Background(), id, nil)
+		},
+		func(id int32, x esi.GetAlliancesAllianceIdOk) EveAlliance {
+			return EveAlliance{
+				AllianceID: id,
+				Name:       x.Name,
+				Ticker:     x.Ticker,
+				Timestamp:  now(),
+			}
+		},
+		func(id int32) EveAlliance {
+			return EveAlliance{
+				AllianceID: id,
+				Name:       nameInvalid,
+				Timestamp:  now(),
+			}
+		},
+		a.st.UpdateOrCreateEveAlliance,
+	)
+	return oo, err
+}
+
+func (a App) fetchAndPrintFactions(ids []int32) error {
+	factions, err := a.fetchFactions(ids)
+	if err != nil {
+		return err
+	}
+	var corporationIDs []int32
+	for _, o := range factions {
+		if o.CorporationID != 0 {
+			corporationIDs = append(corporationIDs, o.CorporationID)
+		}
+		if o.MilitiaCorporationID != 0 {
+			corporationIDs = append(corporationIDs, o.MilitiaCorporationID)
+		}
+	}
+	corporations, err := a.fetchCorporations(corporationIDs)
+	if err != nil {
+		return err
+	}
+	corporationLookup := makeLookupMap(corporations)
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "CorporationID", "CorporationName", "MilitiaCorporationID", "MilitiaCorporationName"},
+		factions,
+		func(o EveFaction) []any {
+			return []any{o.ID(), o.Name, idOrEmpty(o.CorporationID), corporationLookup[o.CorporationID].Name, idOrEmpty(o.MilitiaCorporationID), corporationLookup[o.MilitiaCorporationID].Name}
+		})
+	return nil
+}
+
+func (a App) fetchFactions(ids []int32) ([]EveFaction, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveFactionByID,
+		func(id int32) ([]esi.GetUniverseFactions200Ok, *http.Response, error) {
+			return a.esiClient.ESI.UniverseApi.GetUniverseFactions(context.Background(), nil)
+		},
+		func(id int32, xx []esi.GetUniverseFactions200Ok) EveFaction {
+			for _, x := range xx {
+				if x.FactionId != id {
+					continue
+				}
+				return EveFaction{
+					FactionID:            id,
+					CorporationID:        x.CorporationId,
+					MilitiaCorporationID: x.MilitiaCorporationId,
+					Name:                 x.Name,
+					Timestamp:            now(),
+				}
+			}
+			return EveFaction{
+				FactionID: id,
+				Name:      nameInvalid,
+				Timestamp: now(),
+			}
+		},
+		func(id int32) EveFaction {
+			return EveFaction{
+				FactionID: id,
+				Name:      nameInvalid,
+				Timestamp: now(),
+			}
+		},
+		a.st.UpdateOrCreateEveFaction,
+	)
+	return oo, err
+}
+
+func (a App) fetchAndPrintStations(ids []int32) error {
+	stations, err := a.fetchStations(ids)
+	if err != nil {
+		return err
+	}
+	var ownerIDs, solarSystemIDs, typedIDs []int32
+	for _, et := range stations {
+		ownerIDs = append(typedIDs, et.OwnerID)
+		solarSystemIDs = append(typedIDs, et.SolarSystemID)
+		typedIDs = append(typedIDs, et.TypeID)
+	}
+	owners, err := a.fetchCorporations(ownerIDs)
+	if err != nil {
+		return err
+	}
+	solarSystems, err := a.fetchSolarSystems(solarSystemIDs)
+	if err != nil {
+		return err
+	}
+	types, err := a.fetchTypes(typedIDs)
+	if err != nil {
+		return err
+	}
+	ownerLookup := makeLookupMap(owners)
+	solarSystemLookup := makeLookupMap(solarSystems)
+	typeLookup := makeLookupMap(types)
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "SolarSystemID", "SolarSystemName", "TypeID", "TypeName", "OwnerID", "OwnerName"},
+		stations,
+		func(o EveStation) []any {
+			typeName := typeLookup[o.TypeID].Name
+			ownerName := ownerLookup[o.OwnerID].Name
+			solarSystemName := solarSystemLookup[o.SolarSystemID].Name
+			return []any{o.TypeID, o.Name, o.SolarSystemID, solarSystemName, o.TypeID, typeName, o.OwnerID, ownerName}
+		})
+	return nil
+}
+
+func (a App) fetchStations(ids []int32) ([]EveStation, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveStationByID,
+		func(id int32) (esi.GetUniverseStationsStationIdOk, *http.Response, error) {
+			return a.esiClient.ESI.UniverseApi.GetUniverseStationsStationId(context.Background(), id, nil)
+		},
+		func(id int32, x esi.GetUniverseStationsStationIdOk) EveStation {
+			return EveStation{
+				Name:          x.Name,
+				OwnerID:       x.Owner,
+				SolarSystemID: x.SystemId,
+				StationID:     id,
+				Timestamp:     now(),
+				TypeID:        x.TypeId,
+			}
+		},
+		func(id int32) EveStation {
+			return EveStation{
+				StationID: id,
+				Name:      nameInvalid,
+				Timestamp: now(),
+			}
+		},
+		a.st.UpdateOrCreateEveStation,
+	)
+	return oo, err
+}
 
 func (a App) fetchAndPrintTypes(ids []int32) error {
 	types, err := a.fetchTypes(ids)
@@ -465,11 +740,15 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 	}
 	categoryLookup := makeLookupMap(categories)
 	groupLookup := makeLookupMap(groups)
-	printTableWithSort(a.out, []string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"}, types, func(o EveType) []any {
-		group := groupLookup[o.GroupID]
-		category := categoryLookup[group.CategoryID]
-		return []any{o.TypeID, o.Name, group.GroupID, group.Name, category.CategoryID, category.Name, o.Published}
-	})
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"},
+		types,
+		func(o EveType) []any {
+			group := groupLookup[o.GroupID]
+			category := categoryLookup[group.CategoryID]
+			return []any{o.TypeID, o.Name, group.GroupID, group.Name, category.CategoryID, category.Name, o.Published}
+		})
 	return nil
 }
 
@@ -554,6 +833,168 @@ func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
 		a.st.UpdateOrCreateEveGroup,
 	)
 	return oo, err
+}
+
+func (a App) fetchAndPrintSolarSystems(ids []int32) error {
+	types, err := a.fetchSolarSystems(ids)
+	if err != nil {
+		return err
+	}
+	constellationIDs := make([]int32, 0)
+	for _, o := range types {
+		constellationIDs = append(constellationIDs, o.ConstellationID)
+	}
+	constellations, err := a.fetchConstellations(constellationIDs)
+	if err != nil {
+		return err
+	}
+	regionIDs := make([]int32, 0)
+	for _, o := range constellations {
+		regionIDs = append(regionIDs, o.RegionID)
+	}
+	regions, err := a.fetchRegions(regionIDs)
+	if err != nil {
+		return err
+	}
+	regionLookup := makeLookupMap(regions)
+	constellationLookup := makeLookupMap(constellations)
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "ConstellationID", "ConstellationName", "RegionID", "RegionName", "Security"},
+		types,
+		func(o EveSolarSystem) []any {
+			constellation := constellationLookup[o.ConstellationID]
+			region := regionLookup[constellation.RegionID]
+			return []any{o.ID(), o.Name, constellation.ConstellationID, constellation.Name, region.RegionID, region.Name, o.Security}
+		})
+	return nil
+}
+
+func (a App) fetchSolarSystems(ids []int32) ([]EveSolarSystem, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveSolarSystemByID,
+		func(id int32) (esi.GetUniverseSystemsSystemIdOk, *http.Response, error) {
+			return a.esiClient.ESI.UniverseApi.GetUniverseSystemsSystemId(context.Background(), id, nil)
+		},
+		func(id int32, x esi.GetUniverseSystemsSystemIdOk) EveSolarSystem {
+			return EveSolarSystem{
+				ConstellationID: x.ConstellationId,
+				Name:            x.Name,
+				Security:        x.SecurityStatus,
+				SolarSystemID:   id,
+				Timestamp:       now(),
+			}
+		},
+		func(id int32) EveSolarSystem {
+			return EveSolarSystem{
+				SolarSystemID: id,
+				Name:          nameInvalid,
+				Timestamp:     now(),
+			}
+		},
+		a.st.UpdateOrCreateEveSolarSystem,
+	)
+	return oo, err
+}
+
+func (a App) fetchAndPrintConstellations(ids []int32) error {
+	constellations, err := a.fetchConstellations(ids)
+	if err != nil {
+		return err
+	}
+	regionIDs := make([]int32, 0)
+	for _, o := range constellations {
+		regionIDs = append(regionIDs, o.RegionID)
+	}
+	regions, err := a.fetchRegions(regionIDs)
+	if err != nil {
+		return err
+	}
+	regionLookup := makeLookupMap(regions)
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name", "RegionID", "RegionName"},
+		constellations,
+		func(o EveConstellation) []any {
+			return []any{o.ID(), o.Name, o.RegionID, regionLookup[o.RegionID].Name}
+		})
+	return nil
+}
+
+func (a App) fetchConstellations(ids []int32) ([]EveConstellation, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveConstellationByID,
+		func(id int32) (esi.GetUniverseConstellationsConstellationIdOk, *http.Response, error) {
+			return a.esiClient.ESI.UniverseApi.GetUniverseConstellationsConstellationId(context.Background(), id, nil)
+		},
+		func(id int32, x esi.GetUniverseConstellationsConstellationIdOk) EveConstellation {
+			return EveConstellation{
+				ConstellationID: id,
+				RegionID:        x.RegionId,
+				Name:            x.Name,
+				Timestamp:       now(),
+			}
+		},
+		func(id int32) EveConstellation {
+			return EveConstellation{
+				ConstellationID: id,
+				Name:            nameInvalid,
+				Timestamp:       now(),
+			}
+		},
+		a.st.UpdateOrCreateEveConstellation,
+	)
+	return oo, err
+}
+
+func (a App) fetchAndPrintRegions(ids []int32) error {
+	regions, err := a.fetchRegions(ids)
+	if err != nil {
+		return err
+	}
+	printTableWithSort(
+		a.out,
+		[]string{"ID", "Name"},
+		regions,
+		func(o EveRegion) []any {
+			return []any{o.ID(), o.Name}
+		})
+	return nil
+}
+
+func (a App) fetchRegions(ids []int32) ([]EveRegion, error) {
+	oo, err := fetchObjects(
+		ids,
+		a.st.ListFreshEveRegionByID,
+		func(id int32) (esi.GetUniverseRegionsRegionIdOk, *http.Response, error) {
+			return a.esiClient.ESI.UniverseApi.GetUniverseRegionsRegionId(context.Background(), id, nil)
+		},
+		func(id int32, x esi.GetUniverseRegionsRegionIdOk) EveRegion {
+			return EveRegion{
+				RegionID:  id,
+				Name:      x.Name,
+				Timestamp: now(),
+			}
+		},
+		func(id int32) EveRegion {
+			return EveRegion{
+				RegionID:  id,
+				Name:      nameInvalid,
+				Timestamp: now(),
+			}
+		},
+		a.st.UpdateOrCreateEveRegion,
+	)
+	return oo, err
+}
+
+func idOrEmpty(id int32) string {
+	if id == 0 {
+		return ""
+	}
+	return strconv.Itoa(int(id))
 }
 
 func sliceUnique[T comparable](s []T) []T {

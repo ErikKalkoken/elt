@@ -38,8 +38,8 @@ func TestStorageEveEntites(t *testing.T) {
 		if o.Name == "" {
 			o.Name = fmt.Sprintf("Dummy #%d", o.EntityID)
 		}
-		if o.Category == Undefined {
-			o.Category = Character
+		if o.Category == CategoryUndefined {
+			o.Category = CategoryCharacter
 		}
 		err := st.UpdateOrCreateEveEntity([]EveEntity{o})
 		if err != nil {
@@ -100,7 +100,7 @@ func TestStorageEveEntites(t *testing.T) {
 	})
 	t.Run("should return error when trying to create object with ID 0", func(t *testing.T) {
 		st.MustClear()
-		o := EveEntity{EntityID: 0, Name: "abc", Category: Character}
+		o := EveEntity{EntityID: 0, Name: "abc", Category: CategoryCharacter}
 		err := st.UpdateOrCreateEveEntity([]EveEntity{o})
 		assert.Error(t, err)
 	})

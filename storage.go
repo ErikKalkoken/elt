@@ -8,22 +8,36 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-//go:generate go run ./tools/genstorage EveType EveGroup EveCategory EveEntity EveCharacter
+//go:generate go run ./tools/genstorage EveAlliance EveCategory EveCharacter EveConstellation EveCorporation EveEntity EveFaction EveGroup EveRegion EveSolarSystem EveStation EveType
 
 const (
-	bucketEveCategory  = "eve_categories"
-	bucketEveCharacter = "eve_characters"
-	bucketEveEntity    = "eve_entities"
-	bucketEveGroup     = "eve_groups"
-	bucketEveType      = "eve_types"
+	bucketEveAlliance      = "eve_alliances"
+	bucketEveCategory      = "eve_categories"
+	bucketEveCharacter     = "eve_characters"
+	bucketEveConstellation = "eve_constellations"
+	bucketEveCorporation   = "eve_corporations"
+	bucketEveEntity        = "eve_entities"
+	bucketEveFaction       = "eve_factions"
+	bucketEveGroup         = "eve_groups"
+	bucketEveRegion        = "eve_regions"
+	bucketEveSolarSystem   = "eve_solar_systems"
+	bucketEveStation       = "eve_stations"
+	bucketEveType          = "eve_types"
 )
 
 var bucketNames = []string{
+	bucketEveAlliance,
 	bucketEveCategory,
 	bucketEveCharacter,
+	bucketEveConstellation,
+	bucketEveCorporation,
 	bucketEveEntity,
-	bucketEveType,
+	bucketEveFaction,
 	bucketEveGroup,
+	bucketEveRegion,
+	bucketEveSolarSystem,
+	bucketEveStation,
+	bucketEveType,
 }
 
 type Storage struct {
@@ -115,6 +129,7 @@ func (st *Storage) ListFreshEveEntitiesByName(names []string) ([]EveEntity, erro
 type EveObject interface {
 	ID() int32
 	IsStale() bool
+	IsValid() bool
 }
 
 func listEveObjects[T EveObject](st *Storage, bucket string) ([]T, error) {
@@ -136,7 +151,7 @@ func listEveObjects[T EveObject](st *Storage, bucket string) ([]T, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listEveObjects: %T: %w", objs, err)
 	}
 	return objs, nil
 }
@@ -168,7 +183,7 @@ func listFreshEveObjectsByID[T EveObject](st *Storage, bucket string, ids []int3
 		}
 		return nil
 	}); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("listFreshEveObjectsByID: %T: %w", objs, err)
 	}
 	return objs, notFound, nil
 }
@@ -183,22 +198,21 @@ func updateOrCreateEveObjects[T EveObject](st *Storage, bucket string, objs []T)
 			return fmt.Errorf("bucket does not exist: %s", bucket)
 		}
 		for _, o := range objs {
-			id := int(o.ID())
-			if id == 0 {
-				return fmt.Errorf("invalid")
+			if !o.IsValid() {
+				return fmt.Errorf("invalid: %+v", o)
 			}
 			v, err := json.Marshal(o)
 			if err != nil {
 				return err
 			}
-			k := strconv.Itoa(id)
+			k := strconv.Itoa(int(o.ID()))
 			if err := b.Put([]byte(k), v); err != nil {
 				return err
 			}
 		}
 		return nil
 	}); err != nil {
-		return err
+		return fmt.Errorf("updateOrCreateEveObjects: %T: %w", objs, err)
 	}
 	return nil
 }

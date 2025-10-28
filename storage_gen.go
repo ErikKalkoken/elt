@@ -3,6 +3,19 @@
 package main
 
 
+func (st *Storage) ListEveAlliance() ([]EveAlliance, error) {
+    return listEveObjects[EveAlliance](st, bucketEveAlliance)
+}
+
+func (st *Storage) ListFreshEveAllianceByID(ids []int32) ([]EveAlliance, []int32, error) {
+    return listFreshEveObjectsByID[EveAlliance](st, bucketEveAlliance, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveAlliance(objs []EveAlliance) error {
+    return updateOrCreateEveObjects(st, bucketEveAlliance, objs)
+}
+
+
 func (st *Storage) ListEveCategory() ([]EveCategory, error) {
     return listEveObjects[EveCategory](st, bucketEveCategory)
 }
@@ -29,6 +42,32 @@ func (st *Storage) UpdateOrCreateEveCharacter(objs []EveCharacter) error {
 }
 
 
+func (st *Storage) ListEveConstellation() ([]EveConstellation, error) {
+    return listEveObjects[EveConstellation](st, bucketEveConstellation)
+}
+
+func (st *Storage) ListFreshEveConstellationByID(ids []int32) ([]EveConstellation, []int32, error) {
+    return listFreshEveObjectsByID[EveConstellation](st, bucketEveConstellation, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveConstellation(objs []EveConstellation) error {
+    return updateOrCreateEveObjects(st, bucketEveConstellation, objs)
+}
+
+
+func (st *Storage) ListEveCorporation() ([]EveCorporation, error) {
+    return listEveObjects[EveCorporation](st, bucketEveCorporation)
+}
+
+func (st *Storage) ListFreshEveCorporationByID(ids []int32) ([]EveCorporation, []int32, error) {
+    return listFreshEveObjectsByID[EveCorporation](st, bucketEveCorporation, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveCorporation(objs []EveCorporation) error {
+    return updateOrCreateEveObjects(st, bucketEveCorporation, objs)
+}
+
+
 func (st *Storage) ListEveEntity() ([]EveEntity, error) {
     return listEveObjects[EveEntity](st, bucketEveEntity)
 }
@@ -42,6 +81,19 @@ func (st *Storage) UpdateOrCreateEveEntity(objs []EveEntity) error {
 }
 
 
+func (st *Storage) ListEveFaction() ([]EveFaction, error) {
+    return listEveObjects[EveFaction](st, bucketEveFaction)
+}
+
+func (st *Storage) ListFreshEveFactionByID(ids []int32) ([]EveFaction, []int32, error) {
+    return listFreshEveObjectsByID[EveFaction](st, bucketEveFaction, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveFaction(objs []EveFaction) error {
+    return updateOrCreateEveObjects(st, bucketEveFaction, objs)
+}
+
+
 func (st *Storage) ListEveGroup() ([]EveGroup, error) {
     return listEveObjects[EveGroup](st, bucketEveGroup)
 }
@@ -52,6 +104,45 @@ func (st *Storage) ListFreshEveGroupByID(ids []int32) ([]EveGroup, []int32, erro
 
 func (st *Storage) UpdateOrCreateEveGroup(objs []EveGroup) error {
     return updateOrCreateEveObjects(st, bucketEveGroup, objs)
+}
+
+
+func (st *Storage) ListEveRegion() ([]EveRegion, error) {
+    return listEveObjects[EveRegion](st, bucketEveRegion)
+}
+
+func (st *Storage) ListFreshEveRegionByID(ids []int32) ([]EveRegion, []int32, error) {
+    return listFreshEveObjectsByID[EveRegion](st, bucketEveRegion, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveRegion(objs []EveRegion) error {
+    return updateOrCreateEveObjects(st, bucketEveRegion, objs)
+}
+
+
+func (st *Storage) ListEveSolarSystem() ([]EveSolarSystem, error) {
+    return listEveObjects[EveSolarSystem](st, bucketEveSolarSystem)
+}
+
+func (st *Storage) ListFreshEveSolarSystemByID(ids []int32) ([]EveSolarSystem, []int32, error) {
+    return listFreshEveObjectsByID[EveSolarSystem](st, bucketEveSolarSystem, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveSolarSystem(objs []EveSolarSystem) error {
+    return updateOrCreateEveObjects(st, bucketEveSolarSystem, objs)
+}
+
+
+func (st *Storage) ListEveStation() ([]EveStation, error) {
+    return listEveObjects[EveStation](st, bucketEveStation)
+}
+
+func (st *Storage) ListFreshEveStationByID(ids []int32) ([]EveStation, []int32, error) {
+    return listFreshEveObjectsByID[EveStation](st, bucketEveStation, ids)
+}
+
+func (st *Storage) UpdateOrCreateEveStation(objs []EveStation) error {
+    return updateOrCreateEveObjects(st, bucketEveStation, objs)
 }
 
 
