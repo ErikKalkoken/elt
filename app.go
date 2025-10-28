@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/antihax/goesi"
@@ -44,8 +43,7 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	fmt.Println("Entities")
-	sortEntities(cmd.String("sort"), entities)
-	printTable([]string{"ID", "Name", "Category", "Timeout"}, entities, func(ee EveEntity) []any {
+	printTableWithSort([]string{"ID", "Name", "Category", "Timeout"}, entities, func(ee EveEntity) []any {
 		return []any{ee.EntityID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
 	})
 
@@ -54,7 +52,7 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	fmt.Println("Categories")
-	printTable([]string{"ID", "Name", "Timestamp"}, categories, func(o EveCategory) []any {
+	printTableWithSort([]string{"ID", "Name", "Timestamp"}, categories, func(o EveCategory) []any {
 		return []any{o.CategoryID, o.Name, o.Timestamp.Format(time.RFC3339)}
 	})
 
@@ -63,7 +61,7 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	fmt.Println("Groups")
-	printTable([]string{"ID", "Name", "CategoryID", "Timestamp"}, groups, func(o EveGroup) []any {
+	printTableWithSort([]string{"ID", "Name", "CategoryID", "Timestamp"}, groups, func(o EveGroup) []any {
 		return []any{o.GroupID, o.Name, o.CategoryID, o.Timestamp.Format(time.RFC3339)}
 	})
 
@@ -72,7 +70,7 @@ func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	fmt.Println("Types")
-	printTable([]string{"ID", "Name", "GroupID", "Timestamp"}, types, func(o EveType) []any {
+	printTableWithSort([]string{"ID", "Name", "GroupID", "Timestamp"}, types, func(o EveType) []any {
 		return []any{o.TypeID, o.Name, o.GroupID, o.Timestamp.Format(time.RFC3339)}
 	})
 	return nil
@@ -86,9 +84,6 @@ func (a App) ClearCache(ctx context.Context, cmd *cli.Command) error {
 	fmt.Printf("%d objects deleted\n", n)
 	return nil
 }
-
-// TODO: Fix custom sort
-// sortEntities(cmd.String("sort"), entities)
 
 func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
 	entities, err := a.resolveIDs(cmd.Int32Args("ID"))
@@ -115,13 +110,21 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 			if err != nil {
 				return err
 			}
+		case Invalid:
+			entities2 := slices.DeleteFunc(entities, func(o EveEntity) bool {
+				return o.Category != Invalid
+			})
+			printTableWithSort([]string{"ID", "Name", "Category"}, entities2, func(o EveEntity) []any {
+				return []any{o.EntityID, o.Name, o.Category.Display()}
+			})
+
 		default:
-			entities, _, err := a.st.ListEveEntitiesByID(ids)
+			entities, _, err := a.st.ListFreshEveEntitiesByID(ids)
 			if err != nil {
 				return err
 			}
-			printTable([]string{"ID", "Name", "Category"}, entities, func(ee EveEntity) []any {
-				return []any{ee.EntityID, ee.Name, ee.Category.Display()}
+			printTableWithSort([]string{"ID", "Name", "Category"}, entities, func(o EveEntity) []any {
+				return []any{o.EntityID, o.Name, o.Category.Display()}
 			})
 		}
 	}
@@ -129,7 +132,7 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 }
 
 func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
-	entities1, unknownIDs, err := a.st.ListEveEntitiesByID(ids)
+	entities1, unknownIDs, err := a.st.ListFreshEveEntitiesByID(ids)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +254,7 @@ func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
 }
 
 func (a App) resolveNamesFromStorage(names []string) ([]EveEntity, []string, error) {
-	entities, err := a.st.ListEveEntitiesByName(sliceUnique(names))
+	entities, err := a.st.ListFreshEveEntitiesByName(sliceUnique(names))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -337,28 +340,13 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 			Timestamp: now(),
 		})
 	}
-	if err := a.st.UpdateOrCreateEveEntities(entities); err != nil {
+	entities2 := slices.DeleteFunc(slices.Clone(entities), func(o EveEntity) bool {
+		return o.ID() == 0
+	})
+	if err := a.st.UpdateOrCreateEveEntities(entities2); err != nil {
 		return nil, err
 	}
 	return entities, nil
-}
-
-func sortEntities(column string, entities []EveEntity) {
-	slices.SortFunc(entities, func(a, b EveEntity) int {
-		switch column {
-		case "category":
-			if a.Category != b.Category {
-				return strings.Compare(strings.ToLower(string(a.Category)), strings.ToLower(string(b.Category)))
-			}
-			return cmp.Compare(a.EntityID, b.EntityID)
-		case "name":
-			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-		case "timestamp":
-			return a.Timestamp.Compare(b.Timestamp)
-		default:
-			return cmp.Compare(a.EntityID, b.EntityID)
-		}
-	})
 }
 
 func (a App) ResolveTypes(ctx context.Context, cmd *cli.Command) error {
@@ -389,12 +377,9 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 	if err != nil {
 		return err
 	}
-	slices.SortFunc(types, func(a, b EveType) int {
-		return cmp.Compare(a.TypeID, b.TypeID)
-	})
 	categoryLookup := makeLookupMap(categories)
 	groupLookup := makeLookupMap(groups)
-	printTable([]string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"}, types, func(o EveType) []any {
+	printTableWithSort([]string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"}, types, func(o EveType) []any {
 		group := groupLookup[o.GroupID]
 		category := categoryLookup[group.CategoryID]
 		return []any{o.TypeID, o.Name, group.GroupID, group.Name, category.CategoryID, category.Name, o.Published}
@@ -403,7 +388,7 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 }
 
 func (a App) fetchTypes(ids []int32) ([]EveType, error) {
-	typesLocal, missing, err := a.st.ListEveTypesByID(sliceUnique(ids))
+	typesLocal, missing, err := a.st.ListFreshEveTypesByID(sliceUnique(ids))
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +428,7 @@ func (a App) fetchTypes(ids []int32) ([]EveType, error) {
 }
 
 func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
-	groupsLocal, missing, err := a.st.ListEveCategoriesByID(sliceUnique(ids)...)
+	groupsLocal, missing, err := a.st.ListFreshEveCategoriesByID(sliceUnique(ids)...)
 	if err != nil {
 		return nil, err
 	}
@@ -479,7 +464,7 @@ func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
 }
 
 func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
-	groupsLocal, missing, err := a.st.ListEveGroupsByID(sliceUnique(ids)...)
+	groupsLocal, missing, err := a.st.ListFreshEveGroupsByID(sliceUnique(ids)...)
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +540,10 @@ func fetchObjectsFromAPI[X any, Y Identifiable](ids []int32, fetcher func(id int
 	return objs, nil
 }
 
-func printTable[T any](headers []string, objs []T, makeRow func(T) []any) {
+func printTableWithSort[T Identifiable](headers []string, objs []T, makeRow func(T) []any) {
+	slices.SortFunc(objs, func(a, b T) int {
+		return cmp.Compare(a.ID(), b.ID())
+	})
 	rows := make([][]any, 0)
 	for _, o := range objs {
 		rows = append(rows, makeRow(o))

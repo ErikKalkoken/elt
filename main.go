@@ -47,9 +47,6 @@ func main() {
 	if err := st.Init(); err != nil {
 		exitWithError(err)
 	}
-	if err := st.RemoveStaleObjects(); err != nil {
-		exitWithError(err)
-	}
 
 	rhc := retryablehttp.NewClient()
 	rhc.Logger = slog.Default()
@@ -58,17 +55,6 @@ func main() {
 
 	app := NewApp(esiClient, st)
 
-	sortFlag := &cli.StringFlag{
-		Name:  "sort",
-		Value: "id",
-		Usage: "sort output by `COLUMN`",
-		Validator: func(s string) error {
-			if !slices.Contains([]string{"id", "name", "category", "timestamp"}, s) {
-				return fmt.Errorf("invalid sort option: %s", s)
-			}
-			return nil
-		},
-	}
 	cmd := &cli.Command{
 		Usage:   "A command line tool for getting information about Eve Online objects.",
 		Version: Version,
@@ -98,7 +84,6 @@ func main() {
 						Max:  -1,
 					},
 				},
-				Flags: []cli.Flag{sortFlag},
 			},
 			{
 				Name:   "names",
@@ -111,7 +96,6 @@ func main() {
 						Max:  -1,
 					},
 				},
-				Flags: []cli.Flag{sortFlag},
 			},
 			{
 				Name:   "types",
@@ -124,7 +108,6 @@ func main() {
 						Max:  -1,
 					},
 				},
-				Flags: []cli.Flag{sortFlag},
 			},
 			{
 				Name:  "system",
@@ -134,7 +117,6 @@ func main() {
 						Name:   "dump-cache",
 						Usage:  "dump cached objects",
 						Action: app.DumpCache,
-						Flags:  []cli.Flag{sortFlag},
 					},
 					{
 						Name:   "clear-cache",

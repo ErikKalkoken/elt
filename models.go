@@ -8,6 +8,12 @@ import (
 	"golang.org/x/text/language"
 )
 
+// timeouts: expired objects are considered stale
+const (
+	defaultTimeout = 24 * time.Hour
+	eveTypeTimeout = 24 * 7 * time.Hour
+)
+
 type EveEntityCategory string
 
 // Supported categories of EveEntity
@@ -41,8 +47,17 @@ type EveEntity struct {
 	Timestamp time.Time         `json:"timestamp"`
 }
 
-func (ee EveEntity) ID() int32 {
-	return ee.EntityID
+func (o EveEntity) ID() int32 {
+	return o.EntityID
+}
+
+func (o EveEntity) IsStale() bool {
+	switch o.Category {
+	case InventoryType:
+		return o.Timestamp.Before(time.Now().UTC().Add(-eveTypeTimeout))
+	default:
+		return o.Timestamp.Before(time.Now().UTC().Add(-defaultTimeout))
+	}
 }
 
 type EveCategory struct {
@@ -52,8 +67,12 @@ type EveCategory struct {
 	Timestamp  time.Time `json:"timestamp"`
 }
 
-func (ec EveCategory) ID() int32 {
-	return ec.CategoryID
+func (o EveCategory) ID() int32 {
+	return o.CategoryID
+}
+
+func (o EveCategory) IsStale() bool {
+	return o.Timestamp.Before(time.Now().UTC().Add(-eveTypeTimeout))
 }
 
 type EveGroup struct {
@@ -64,8 +83,12 @@ type EveGroup struct {
 	Timestamp  time.Time `json:"timestamp"`
 }
 
-func (eg EveGroup) ID() int32 {
-	return eg.GroupID
+func (o EveGroup) ID() int32 {
+	return o.GroupID
+}
+
+func (o EveGroup) IsStale() bool {
+	return o.Timestamp.Before(time.Now().UTC().Add(-eveTypeTimeout))
 }
 
 type EveType struct {
@@ -76,6 +99,10 @@ type EveType struct {
 	TypeID    int32     `json:"type_id"`
 }
 
-func (et EveType) ID() int32 {
-	return et.TypeID
+func (o EveType) ID() int32 {
+	return o.TypeID
+}
+
+func (o EveType) IsStale() bool {
+	return o.Timestamp.Before(time.Now().UTC().Add(-eveTypeTimeout))
 }
