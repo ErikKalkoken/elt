@@ -1,21 +1,20 @@
-// everef is a command line tool for getting information about Eve Online objects.
+// everef is a command line tool for looking up Eve Online objects.
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
-	"maps"
 	"os"
-	"slices"
-	"strings"
 
 	"github.com/adrg/xdg"
 	"github.com/antihax/goesi"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/urfave/cli/v3"
 	bolt "go.etcd.io/bbolt"
+	"golang.org/x/term"
 )
 
 const (
@@ -30,22 +29,39 @@ var ErrNotFound = errors.New("not found")
 var Version = "0.1.0"
 
 func main() {
-	exitWithError := func(err error) {
-		fmt.Println("ERROR: " + err.Error())
+	err := run(os.Args, os.Stdin, os.Stdout)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	p, err := xdg.CacheFile("everef/cache.db")
+}
+
+const description = `This command looks up EVE Online objects from the game server and prints them in the terminal.
+
+You can pass in a mix of EVE IDs and names. Please use quotes for names with multiple words.
+
+EVE objects of the following categories are supported:
+Agents, Alliances, Characters, Constellations, Corporations, Factions, Regions, Stations, Solar Systems, Types
+
+Example:
+
+everef 30000142 "Erik Kalkoken"
+
+For more information please see this website: https://github.com/ErikKalkoken/everef`
+
+func run(args []string, _ io.Reader, stdout io.Writer) error {
+	dbFilepath, err := xdg.CacheFile(appName + "/cache.db")
 	if err != nil {
-		exitWithError(err)
+		return err
 	}
-	db, err := bolt.Open(p, 0600, nil)
+	db, err := bolt.Open(dbFilepath, 0600, nil)
 	if err != nil {
-		exitWithError(err)
+		return err
 	}
 	defer db.Close()
 	st := NewStorage(db)
 	if err := st.Init(); err != nil {
-		exitWithError(err)
+		return err
 	}
 
 	rhc := retryablehttp.NewClient()
@@ -53,22 +69,18 @@ func main() {
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, userAgentEmail, sourceURL)
 	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	app := NewApp(esiClient, st)
-
-	sortFlag := &cli.StringFlag{
-		Name:  "sort",
-		Value: "id",
-		Usage: "sort output by `COLUMN`",
-		Validator: func(s string) error {
-			if !slices.Contains([]string{"id", "name", "category", "timestamp"}, s) {
-				return fmt.Errorf("invalid sort option: %s", s)
-			}
-			return nil
-		},
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return err
 	}
+	app := NewApp(esiClient, st, stdout, width)
+
 	cmd := &cli.Command{
-		Usage:   "A command line tool for getting information about Eve Online objects.",
-		Version: Version,
+		Usage:       "A command line tool for looking up Eve Online objects.",
+		ArgsUsage:   "value1 [value2 value3 ...]",
+		Description: description,
+		Version:     Version,
+		Authors:     []any{"Erik Kalkoken"},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "log-level",
@@ -76,76 +88,15 @@ func main() {
 				Value:   "info",
 				Usage:   "log level for this sessions",
 			},
-		},
-		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
-			if err := setLogLevel(cmd); err != nil {
-				return ctx, err
-			}
-			return ctx, nil
-		},
-		Commands: []*cli.Command{
-			{
-				Name:   "ids",
-				Usage:  "resolves entities from IDs",
-				Action: app.ResolveIDs,
-				Arguments: []cli.Argument{
-					&cli.Int32Args{
-						Name: "ID",
-						Min:  1,
-						Max:  -1,
-					},
-				},
-				Flags: []cli.Flag{sortFlag},
-			},
-			{
-				Name:   "names",
-				Usage:  "resolve entities from names",
-				Action: app.ResolveNames,
-				Arguments: []cli.Argument{
-					&cli.StringArgs{
-						Name: "Name",
-						Min:  1,
-						Max:  -1,
-					},
-				},
-				Flags: []cli.Flag{sortFlag},
-			},
-			{
-				Name:  "cache",
-				Usage: "manage cached entities",
-				Commands: []*cli.Command{
-					{
-						Name:   "list",
-						Usage:  "list objects",
-						Action: app.ListCache,
-						Flags:  []cli.Flag{sortFlag},
-					},
-					{
-						Name:   "clear",
-						Usage:  "clear objects",
-						Action: app.ClearCache,
-					},
-				},
+			&cli.BoolFlag{
+				Name:  "clear-cache",
+				Usage: "Clears the local cache before the lookup",
 			},
 		},
+		Action: app.Run,
 	}
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		exitWithError(err)
+	if err := cmd.Run(context.Background(), args); err != nil {
+		return err
 	}
-}
-
-func setLogLevel(cmd *cli.Command) error {
-	m := map[string]slog.Level{
-		"debug": slog.LevelDebug,
-		"info":  slog.LevelInfo,
-		"warn":  slog.LevelWarn,
-		"error": slog.LevelError,
-	}
-	l, ok := m[strings.ToLower(cmd.String("log-level"))]
-	if !ok {
-		msg := fmt.Sprintf("valid log levels are %s", strings.Join(slices.Collect(maps.Keys(m)), ", "))
-		return cli.Exit(msg, 1)
-	}
-	slog.SetLogLoggerLevel(l)
 	return nil
 }
