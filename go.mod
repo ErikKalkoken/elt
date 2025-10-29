@@ -11,11 +11,13 @@ require (
 	github.com/urfave/cli/v3 v3.5.0
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/sync v0.17.0
+	golang.org/x/term v0.36.0
 	golang.org/x/text v0.30.0
 )
 
 require (
-	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
+	github.com/clipperhouse/stringish v0.1.1 // indirect
+	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect

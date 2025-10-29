@@ -31,13 +31,15 @@ type App struct {
 	esiClient *goesi.APIClient
 	out       io.Writer
 	st        *Storage
+	width     int
 }
 
-func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
+func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer, width int) App {
 	a := App{
 		esiClient: esiClient,
 		out:       out,
 		st:        st,
+		width:     width,
 	}
 	return a
 }
@@ -67,12 +69,16 @@ func (a App) Run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Parse arguments
+	if cmd.NArg() == 0 {
+		cli.ShowAppHelp(cmd)
+		return nil
+	}
 	var (
 		ids     []int32
 		invalid []int
 		names   []string
 	)
-	for _, arg := range cmd.StringArgs("Value") {
+	for _, arg := range cmd.Args().Slice() {
 		id, err := strconv.Atoi(arg)
 		if err != nil {
 			names = append(names, arg)
@@ -172,6 +178,7 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 			})
 			printTableWithSort(
 				a.out,
+				a.width,
 				[]string{"ID", "Name", "Category"},
 				entities2, func(o EveEntity) []any {
 					return []any{o.EntityID, o.Name, o.Category.Display()}
@@ -184,6 +191,7 @@ func (a App) fetchAndPrintResults(entities []EveEntity) error {
 			}
 			printTableWithSort(
 				a.out,
+				a.width,
 				[]string{"ID", "Name", "Category"},
 				entities,
 				func(o EveEntity) []any {
@@ -436,6 +444,7 @@ func (a App) fetchAndPrintCharacters(ids []int32) error {
 	corporationLookup := makeLookupMap(corporations)
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name", "CorporationID", "CorporationName", "AllianceID", "AllianceName", "NPC"},
 		characters,
 		func(o EveCharacter) []any {
@@ -491,6 +500,7 @@ func (a App) fetchAndPrintCorporations(ids []int32) error {
 	allianceLookup := makeLookupMap(alliances)
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name", "Ticker", "Members", "AllianceID", "AllianceName", "NPC"},
 		corporations,
 		func(o EveCorporation) []any {
@@ -536,6 +546,7 @@ func (a App) fetchAndPrintAlliances(ids []int32) error {
 	}
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name", "Ticker"},
 		alliances,
 		func(o EveAlliance) []any {
@@ -592,6 +603,7 @@ func (a App) fetchAndPrintFactions(ids []int32) error {
 	corporationLookup := makeLookupMap(corporations)
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name", "CorporationID", "CorporationName", "MilitiaCorporationID", "MilitiaCorporationName"},
 		factions,
 		func(o EveFaction) []any {
@@ -666,6 +678,7 @@ func (a App) fetchAndPrintStations(ids []int32) error {
 	typeLookup := makeLookupMap(types)
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name", "SolarSystemID", "SolarSystemName", "TypeID", "TypeName", "OwnerID", "OwnerName"},
 		stations,
 		func(o EveStation) []any {
@@ -731,6 +744,7 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 	groupLookup := makeLookupMap(groups)
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"},
 		types,
 		func(o EveType) []any {
@@ -849,6 +863,7 @@ func (a App) fetchAndPrintSolarSystems(ids []int32) error {
 	constellationLookup := makeLookupMap(constellations)
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name", "ConstellationID", "ConstellationName", "RegionID", "RegionName", "Security"},
 		types,
 		func(o EveSolarSystem) []any {
@@ -903,6 +918,7 @@ func (a App) fetchAndPrintConstellations(ids []int32) error {
 	regionLookup := makeLookupMap(regions)
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name", "RegionID", "RegionName"},
 		constellations,
 		func(o EveConstellation) []any {
@@ -945,6 +961,7 @@ func (a App) fetchAndPrintRegions(ids []int32) error {
 	}
 	printTableWithSort(
 		a.out,
+		a.width,
 		[]string{"ID", "Name"},
 		regions,
 		func(o EveRegion) []any {
@@ -1036,7 +1053,7 @@ func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) 
 	return objs, nil
 }
 
-func printTableWithSort[T EveObject](out io.Writer, headers []string, objs []T, makeRow func(T) []any) {
+func printTableWithSort[T EveObject](out io.Writer, width int, headers []string, objs []T, makeRow func(T) []any) {
 	slices.SortFunc(objs, func(a, b T) int {
 		return cmp.Compare(a.ID(), b.ID())
 	})
@@ -1049,7 +1066,7 @@ func printTableWithSort[T EveObject](out io.Writer, headers []string, objs []T, 
 			Settings: tw.Settings{Separators: tw.Separators{BetweenRows: tw.On}},
 		})),
 		tablewriter.WithConfig(tablewriter.Config{
-			MaxWidth: 200,
+			MaxWidth: width,
 			Row: tw.CellConfig{
 				Formatting: tw.CellFormatting{AutoWrap: tw.WrapNormal},
 				Alignment:  tw.CellAlignment{Global: tw.AlignLeft}, // Left-align rows

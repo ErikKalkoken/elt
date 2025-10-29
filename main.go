@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/urfave/cli/v3"
 	bolt "go.etcd.io/bbolt"
+	"golang.org/x/term"
 )
 
 const (
@@ -35,6 +36,17 @@ func main() {
 	}
 }
 
+const description = `This command looks up EVE Online objects from the game server and prints them in the terminal.
+You can pass in a mix of EVE IDs and names. Please use quotes for names with multiple words.
+
+EVE objects of the following categories are supported: Agents, Alliances, Characters, Constellations, Corporations, Factions, Regions, Stations, Solar Systems, Types
+
+Example:
+
+elu 30000142 "Erik Kalkoken"
+
+For more information please see this website: https://github.com/ErikKalkoken/everef`
+
 func run(args []string, _ io.Reader, stdout io.Writer) error {
 	dbFilepath, err := xdg.CacheFile(appName + "/cache.db")
 	if err != nil {
@@ -55,11 +67,18 @@ func run(args []string, _ io.Reader, stdout io.Writer) error {
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, userAgentEmail, sourceURL)
 	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	app := NewApp(esiClient, st, stdout)
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return err
+	}
+	app := NewApp(esiClient, st, stdout, width)
 
 	cmd := &cli.Command{
-		Usage:   "A command line tool for looking up Eve Online objects.",
-		Version: Version,
+		Usage:       "A command line tool for looking up Eve Online objects (Eve Look Up).",
+		ArgsUsage:   "value1 [value2 value3 ...]",
+		Description: description,
+		Version:     Version,
+		Authors:     []any{"Erik Kalkoken"},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "log-level",
@@ -67,17 +86,12 @@ func run(args []string, _ io.Reader, stdout io.Writer) error {
 				Value:   "info",
 				Usage:   "log level for this sessions",
 			},
-			&cli.BoolFlag{Name: "clear-cache"},
-		},
-		Action: app.Run,
-		Arguments: []cli.Argument{
-			&cli.StringArgs{
-				Name:      "Value",
-				UsageText: "An ID or a name of an EVE online object.",
-				Min:       1,
-				Max:       -1,
+			&cli.BoolFlag{
+				Name:  "clear-cache",
+				Usage: "Clears the local cache before the lookup",
 			},
 		},
+		Action: app.Run,
 	}
 	if err := cmd.Run(context.Background(), args); err != nil {
 		return err
