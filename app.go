@@ -19,6 +19,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/renderer"
 	"github.com/olekukonko/tablewriter/tw"
+	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
 )
@@ -100,6 +101,12 @@ func (a App) Run(ctx context.Context, cmd *cli.Command) error {
 		fmt.Fprintf(a.out, "Ignoring invalid IDs: %v\n", invalid)
 	}
 
+	bar := progressbar.NewOptions(-1,
+		progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
+		progressbar.OptionSetDescription("Processing..."),
+		progressbar.OptionSetRenderBlankState(true),
+		progressbar.OptionSetWriter(a.out),
+	)
 	// Resolve ids and names
 	g := new(errgroup.Group)
 	var oo1, oo2 []EveEntity
@@ -133,6 +140,8 @@ func (a App) Run(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
+	bar.Clear()
 
 	// Print results
 	for _, r := range results {
