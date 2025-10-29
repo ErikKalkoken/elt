@@ -27,6 +27,11 @@ const (
 	nameInvalid = "INVALID"
 )
 
+type result struct {
+	category EveEntityCategory
+	table    *tablewriter.Table
+}
+
 type App struct {
 	esiClient *goesi.APIClient
 	out       io.Writer
@@ -96,110 +101,161 @@ func (a App) Run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Resolve ids and names
-	oo1, err := a.resolveIDs(ids)
-	if err != nil {
-		return err
+	g := new(errgroup.Group)
+	var oo1, oo2 []EveEntity
+	if len(ids) > 0 {
+		g.Go(func() error {
+			oo, err := a.resolveIDs(ids)
+			if err != nil {
+				return err
+			}
+			oo1 = oo
+			return nil
+		})
 	}
-	oo2, err := a.resolveNames(names)
-	if err != nil {
+	if len(names) > 0 {
+		g.Go(func() error {
+			oo, err := a.resolveNames(names)
+			if err != nil {
+				return err
+			}
+			oo2 = oo
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
 		return err
 	}
 	oo := slices.Concat(oo1, oo2)
 
-	// Print results
-	if err := a.fetchAndPrintResults(oo); err != nil {
+	// build results
+	results, err := a.buildResults(oo)
+	if err != nil {
 		return err
+	}
+
+	// Print results
+	for _, r := range results {
+		fmt.Fprintln(a.out, r.category.Display()+":")
+		r.table.Render()
 	}
 	return nil
 }
 
-func (a App) fetchAndPrintResults(entities []EveEntity) error {
+func (a App) buildResults(entities []EveEntity) ([]result, error) {
 	category2IDs := make(map[EveEntityCategory][]int32)
 	for _, e := range entities {
 		category2IDs[e.Category] = append(category2IDs[e.Category], e.ID())
 	}
-	for _, c := range slices.Sorted(maps.Keys(category2IDs)) {
-		fmt.Fprintln(a.out, c.Display()+":")
-		ids := category2IDs[c]
-		switch c {
-		case CategoryAgent:
-			err := a.fetchAndPrintCharacters(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryAlliance:
-			err := a.fetchAndPrintAlliances(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryCharacter:
-			err := a.fetchAndPrintCharacters(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryConstellation:
-			err := a.fetchAndPrintConstellations(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryCorporation:
-			err := a.fetchAndPrintCorporations(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryFaction:
-			err := a.fetchAndPrintFactions(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryInventoryType:
-			err := a.fetchAndPrintTypes(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryRegion:
-			err := a.fetchAndPrintRegions(ids)
-			if err != nil {
-				return err
-			}
-		case CategorySolarSystem:
-			err := a.fetchAndPrintSolarSystems(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryStation:
-			err := a.fetchAndPrintStations(ids)
-			if err != nil {
-				return err
-			}
-		case CategoryInvalid:
-			entities2 := slices.DeleteFunc(entities, func(o EveEntity) bool {
-				return o.Category != CategoryInvalid
-			})
-			printTableWithSort(
-				a.out,
-				a.width,
-				[]string{"ID", "Name", "Category"},
-				entities2, func(o EveEntity) []any {
-					return []any{o.EntityID, o.Name, o.Category.Display()}
+	results := make([]result, len(category2IDs))
+	g := new(errgroup.Group)
+	for i, c := range slices.Sorted(maps.Keys(category2IDs)) {
+		g.Go(func() error {
+			ids := category2IDs[c]
+			switch c {
+			case CategoryAgent:
+				t, err := a.buildCharacterTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryAlliance:
+				t, err := a.buildAllianceTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryCharacter:
+				t, err := a.buildCharacterTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryConstellation:
+				t, err := a.buildConstellationTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryCorporation:
+				t, err := a.buildCorporationTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryFaction:
+				t, err := a.buildFactionTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryInventoryType:
+				t, err := a.buildTypeTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryRegion:
+				t, err := a.buildRegionTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategorySolarSystem:
+				t, err := a.buildSolarSystemTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryStation:
+				t, err := a.buildStationTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryInvalid:
+				entities2 := slices.DeleteFunc(entities, func(o EveEntity) bool {
+					return o.Category != CategoryInvalid
 				})
-
-		default:
-			entities, _, err := a.st.ListFreshEveEntityByID(ids)
-			if err != nil {
-				return err
+				t := makeSortedTable(
+					a.out,
+					a.width,
+					[]string{"ID", "Name", "Category"},
+					entities2, func(o EveEntity) []any {
+						return []any{o.EntityID, o.Name, o.Category.Display()}
+					},
+				)
+				results[i] = result{c, t}
+			default:
+				entities, _, err := a.st.ListFreshEveEntityByID(ids)
+				if err != nil {
+					return err
+				}
+				t := makeSortedTable(
+					a.out,
+					a.width,
+					[]string{"ID", "Name", "Category"},
+					entities,
+					func(o EveEntity) []any {
+						return []any{o.EntityID, o.Name, o.Category.Display()}
+					},
+				)
+				results[i] = result{c, t}
 			}
-			printTableWithSort(
-				a.out,
-				a.width,
-				[]string{"ID", "Name", "Category"},
-				entities,
-				func(o EveEntity) []any {
-					return []any{o.EntityID, o.Name, o.Category.Display()}
-				})
-		}
+			return nil
+		})
 	}
-	return nil
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	var results2 []result
+	for _, r := range results {
+		if r.table == nil {
+			continue
+		}
+		results2 = append(results2, r)
+	}
+	return results2, nil
 }
 
 func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
@@ -417,32 +473,41 @@ func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func (a App) fetchAndPrintCharacters(ids []int32) error {
+func (a App) buildCharacterTable(ids []int32) (*tablewriter.Table, error) {
 	characters, err := a.fetchCharacters(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	corporationIDs := make([]int32, 0)
+	var corporationIDs, allianceIDs []int32
 	for _, o := range characters {
 		corporationIDs = append(corporationIDs, o.CorporationID)
-	}
-	corporations, err := a.fetchCorporations(corporationIDs)
-	if err != nil {
-		return err
-	}
-	allianceIDs := make([]int32, 0)
-	for _, o := range characters {
 		if o.AllianceID != 0 {
 			allianceIDs = append(allianceIDs, o.AllianceID)
 		}
 	}
-	alliances, err := a.fetchAlliance(allianceIDs)
-	if err != nil {
-		return err
+	var allianceLookup map[int32]EveAlliance
+	var corporationLookup map[int32]EveCorporation
+	g := new(errgroup.Group)
+	g.Go(func() error {
+		oo, err := a.fetchCorporations(corporationIDs)
+		if err != nil {
+			return err
+		}
+		corporationLookup = makeLookupMap(oo)
+		return nil
+	})
+	g.Go(func() error {
+		oo, err := a.fetchAlliance(allianceIDs)
+		if err != nil {
+			return err
+		}
+		allianceLookup = makeLookupMap(oo)
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
-	allianceLookup := makeLookupMap(alliances)
-	corporationLookup := makeLookupMap(corporations)
-	printTableWithSort(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "CorporationID", "CorporationName", "AllianceID", "AllianceName", "NPC"},
@@ -451,7 +516,7 @@ func (a App) fetchAndPrintCharacters(ids []int32) error {
 			corporationName := corporationLookup[o.CorporationID].Name
 			return []any{o.ID(), o.Name, o.CorporationID, corporationName, idOrEmpty(o.AllianceID), allianceLookup[o.AllianceID].Name, o.IsNPC()}
 		})
-	return nil
+	return t, nil
 }
 
 func (a App) fetchCharacters(ids []int32) ([]EveCharacter, error) {
@@ -482,10 +547,10 @@ func (a App) fetchCharacters(ids []int32) ([]EveCharacter, error) {
 	return oo, err
 }
 
-func (a App) fetchAndPrintCorporations(ids []int32) error {
+func (a App) buildCorporationTable(ids []int32) (*tablewriter.Table, error) {
 	corporations, err := a.fetchCorporations(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	allianceIDs := make([]int32, 0)
 	for _, o := range corporations {
@@ -495,10 +560,10 @@ func (a App) fetchAndPrintCorporations(ids []int32) error {
 	}
 	alliances, err := a.fetchAlliance(allianceIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	allianceLookup := makeLookupMap(alliances)
-	printTableWithSort(
+	makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "Ticker", "Members", "AllianceID", "AllianceName", "NPC"},
@@ -506,7 +571,7 @@ func (a App) fetchAndPrintCorporations(ids []int32) error {
 		func(o EveCorporation) []any {
 			return []any{o.ID(), o.Name, o.Ticker, o.MemberCount, idOrEmpty(o.AllianceID), allianceLookup[o.AllianceID].Name, o.IsNPC()}
 		})
-	return nil
+	return nil, err
 }
 
 func (a App) fetchCorporations(ids []int32) ([]EveCorporation, error) {
@@ -539,12 +604,12 @@ func (a App) fetchCorporations(ids []int32) ([]EveCorporation, error) {
 	return oo, err
 }
 
-func (a App) fetchAndPrintAlliances(ids []int32) error {
+func (a App) buildAllianceTable(ids []int32) (*tablewriter.Table, error) {
 	alliances, err := a.fetchAlliance(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	printTableWithSort(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "Ticker"},
@@ -552,7 +617,7 @@ func (a App) fetchAndPrintAlliances(ids []int32) error {
 		func(o EveAlliance) []any {
 			return []any{o.ID(), o.Name, o.Ticker}
 		})
-	return nil
+	return t, nil
 }
 
 func (a App) fetchAlliance(ids []int32) ([]EveAlliance, error) {
@@ -582,10 +647,10 @@ func (a App) fetchAlliance(ids []int32) ([]EveAlliance, error) {
 	return oo, err
 }
 
-func (a App) fetchAndPrintFactions(ids []int32) error {
+func (a App) buildFactionTable(ids []int32) (*tablewriter.Table, error) {
 	factions, err := a.fetchFactions(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var corporationIDs []int32
 	for _, o := range factions {
@@ -598,10 +663,10 @@ func (a App) fetchAndPrintFactions(ids []int32) error {
 	}
 	corporations, err := a.fetchCorporations(corporationIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	corporationLookup := makeLookupMap(corporations)
-	printTableWithSort(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "CorporationID", "CorporationName", "MilitiaCorporationID", "MilitiaCorporationName"},
@@ -609,7 +674,7 @@ func (a App) fetchAndPrintFactions(ids []int32) error {
 		func(o EveFaction) []any {
 			return []any{o.ID(), o.Name, idOrEmpty(o.CorporationID), corporationLookup[o.CorporationID].Name, idOrEmpty(o.MilitiaCorporationID), corporationLookup[o.MilitiaCorporationID].Name}
 		})
-	return nil
+	return t, nil
 }
 
 func (a App) fetchFactions(ids []int32) ([]EveFaction, error) {
@@ -650,10 +715,10 @@ func (a App) fetchFactions(ids []int32) ([]EveFaction, error) {
 	return oo, err
 }
 
-func (a App) fetchAndPrintStations(ids []int32) error {
+func (a App) buildStationTable(ids []int32) (*tablewriter.Table, error) {
 	stations, err := a.fetchStations(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var ownerIDs, solarSystemIDs, typedIDs []int32
 	for _, et := range stations {
@@ -661,22 +726,38 @@ func (a App) fetchAndPrintStations(ids []int32) error {
 		solarSystemIDs = append(typedIDs, et.SolarSystemID)
 		typedIDs = append(typedIDs, et.TypeID)
 	}
-	owners, err := a.fetchCorporations(ownerIDs)
-	if err != nil {
-		return err
+	var ownerLookup map[int32]EveCorporation
+	var solarSystemLookup map[int32]EveSolarSystem
+	var typeLookup map[int32]EveType
+	g := new(errgroup.Group)
+	g.Go(func() error {
+		oo, err := a.fetchCorporations(ownerIDs)
+		if err != nil {
+			return err
+		}
+		ownerLookup = makeLookupMap(oo)
+		return nil
+	})
+	g.Go(func() error {
+		oo, err := a.fetchSolarSystems(solarSystemIDs)
+		if err != nil {
+			return err
+		}
+		solarSystemLookup = makeLookupMap(oo)
+		return nil
+	})
+	g.Go(func() error {
+		oo, err := a.fetchTypes(typedIDs)
+		if err != nil {
+			return err
+		}
+		typeLookup = makeLookupMap(oo)
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
-	solarSystems, err := a.fetchSolarSystems(solarSystemIDs)
-	if err != nil {
-		return err
-	}
-	types, err := a.fetchTypes(typedIDs)
-	if err != nil {
-		return err
-	}
-	ownerLookup := makeLookupMap(owners)
-	solarSystemLookup := makeLookupMap(solarSystems)
-	typeLookup := makeLookupMap(types)
-	printTableWithSort(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "SolarSystemID", "SolarSystemName", "TypeID", "TypeName", "OwnerID", "OwnerName"},
@@ -687,7 +768,7 @@ func (a App) fetchAndPrintStations(ids []int32) error {
 			solarSystemName := solarSystemLookup[o.SolarSystemID].Name
 			return []any{o.TypeID, o.Name, o.SolarSystemID, solarSystemName, o.TypeID, typeName, o.OwnerID, ownerName}
 		})
-	return nil
+	return t, nil
 }
 
 func (a App) fetchStations(ids []int32) ([]EveStation, error) {
@@ -719,10 +800,10 @@ func (a App) fetchStations(ids []int32) ([]EveStation, error) {
 	return oo, err
 }
 
-func (a App) fetchAndPrintTypes(ids []int32) error {
+func (a App) buildTypeTable(ids []int32) (*tablewriter.Table, error) {
 	types, err := a.fetchTypes(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	groupIDs := make([]int32, 0)
 	for _, et := range types {
@@ -730,19 +811,19 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 	}
 	groups, err := a.fetchGroups(groupIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	groupLookup := makeLookupMap(groups)
 	categoryIDs := make([]int32, 0)
 	for _, eg := range groups {
 		categoryIDs = append(categoryIDs, eg.CategoryID)
 	}
 	categories, err := a.fetchCategories(categoryIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	categoryLookup := makeLookupMap(categories)
-	groupLookup := makeLookupMap(groups)
-	printTableWithSort(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"},
@@ -752,7 +833,7 @@ func (a App) fetchAndPrintTypes(ids []int32) error {
 			category := categoryLookup[group.CategoryID]
 			return []any{o.TypeID, o.Name, group.GroupID, group.Name, category.CategoryID, category.Name, o.Published}
 		})
-	return nil
+	return t, nil
 }
 
 func (a App) fetchTypes(ids []int32) ([]EveType, error) {
@@ -838,10 +919,10 @@ func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
 	return oo, err
 }
 
-func (a App) fetchAndPrintSolarSystems(ids []int32) error {
+func (a App) buildSolarSystemTable(ids []int32) (*tablewriter.Table, error) {
 	types, err := a.fetchSolarSystems(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	constellationIDs := make([]int32, 0)
 	for _, o := range types {
@@ -849,19 +930,19 @@ func (a App) fetchAndPrintSolarSystems(ids []int32) error {
 	}
 	constellations, err := a.fetchConstellations(constellationIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	constellationLookup := makeLookupMap(constellations)
 	regionIDs := make([]int32, 0)
 	for _, o := range constellations {
 		regionIDs = append(regionIDs, o.RegionID)
 	}
 	regions, err := a.fetchRegions(regionIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	regionLookup := makeLookupMap(regions)
-	constellationLookup := makeLookupMap(constellations)
-	printTableWithSort(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "ConstellationID", "ConstellationName", "RegionID", "RegionName", "Security"},
@@ -871,7 +952,7 @@ func (a App) fetchAndPrintSolarSystems(ids []int32) error {
 			region := regionLookup[constellation.RegionID]
 			return []any{o.ID(), o.Name, constellation.ConstellationID, constellation.Name, region.RegionID, region.Name, o.Security}
 		})
-	return nil
+	return t, nil
 }
 
 func (a App) fetchSolarSystems(ids []int32) ([]EveSolarSystem, error) {
@@ -902,10 +983,10 @@ func (a App) fetchSolarSystems(ids []int32) ([]EveSolarSystem, error) {
 	return oo, err
 }
 
-func (a App) fetchAndPrintConstellations(ids []int32) error {
+func (a App) buildConstellationTable(ids []int32) (*tablewriter.Table, error) {
 	constellations, err := a.fetchConstellations(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	regionIDs := make([]int32, 0)
 	for _, o := range constellations {
@@ -913,10 +994,10 @@ func (a App) fetchAndPrintConstellations(ids []int32) error {
 	}
 	regions, err := a.fetchRegions(regionIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	regionLookup := makeLookupMap(regions)
-	printTableWithSort(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "RegionID", "RegionName"},
@@ -924,7 +1005,7 @@ func (a App) fetchAndPrintConstellations(ids []int32) error {
 		func(o EveConstellation) []any {
 			return []any{o.ID(), o.Name, o.RegionID, regionLookup[o.RegionID].Name}
 		})
-	return nil
+	return t, nil
 }
 
 func (a App) fetchConstellations(ids []int32) ([]EveConstellation, error) {
@@ -954,12 +1035,12 @@ func (a App) fetchConstellations(ids []int32) ([]EveConstellation, error) {
 	return oo, err
 }
 
-func (a App) fetchAndPrintRegions(ids []int32) error {
+func (a App) buildRegionTable(ids []int32) (*tablewriter.Table, error) {
 	regions, err := a.fetchRegions(ids)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	printTableWithSort(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name"},
@@ -967,7 +1048,7 @@ func (a App) fetchAndPrintRegions(ids []int32) error {
 		func(o EveRegion) []any {
 			return []any{o.ID(), o.Name}
 		})
-	return nil
+	return t, nil
 }
 
 func (a App) fetchRegions(ids []int32) ([]EveRegion, error) {
@@ -1053,7 +1134,7 @@ func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) 
 	return objs, nil
 }
 
-func printTableWithSort[T EveObject](out io.Writer, width int, headers []string, objs []T, makeRow func(T) []any) {
+func makeSortedTable[T EveObject](out io.Writer, width int, headers []string, objs []T, makeRow func(T) []any) *tablewriter.Table {
 	slices.SortFunc(objs, func(a, b T) int {
 		return cmp.Compare(a.ID(), b.ID())
 	})
@@ -1075,7 +1156,7 @@ func printTableWithSort[T EveObject](out io.Writer, width int, headers []string,
 	)
 	t.Header(headers)
 	t.Bulk(rows)
-	t.Render()
+	return t
 }
 
 func now() time.Time {

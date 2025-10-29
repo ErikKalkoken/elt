@@ -1,4 +1,4 @@
-// everef is a command line tool for getting information about Eve Online objects.
+// everef is a command line tool for looking up Eve Online objects.
 package main
 
 import (
@@ -37,13 +37,15 @@ func main() {
 }
 
 const description = `This command looks up EVE Online objects from the game server and prints them in the terminal.
+
 You can pass in a mix of EVE IDs and names. Please use quotes for names with multiple words.
 
-EVE objects of the following categories are supported: Agents, Alliances, Characters, Constellations, Corporations, Factions, Regions, Stations, Solar Systems, Types
+EVE objects of the following categories are supported:
+Agents, Alliances, Characters, Constellations, Corporations, Factions, Regions, Stations, Solar Systems, Types
 
 Example:
 
-elu 30000142 "Erik Kalkoken"
+everef 30000142 "Erik Kalkoken"
 
 For more information please see this website: https://github.com/ErikKalkoken/everef`
 
@@ -74,7 +76,7 @@ func run(args []string, _ io.Reader, stdout io.Writer) error {
 	app := NewApp(esiClient, st, stdout, width)
 
 	cmd := &cli.Command{
-		Usage:       "A command line tool for looking up Eve Online objects (Eve Look Up).",
+		Usage:       "A command line tool for looking up Eve Online objects.",
 		ArgsUsage:   "value1 [value2 value3 ...]",
 		Description: description,
 		Version:     Version,
