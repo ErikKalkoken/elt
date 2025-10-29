@@ -1,4 +1,4 @@
-// everef is a command line tool for looking up Eve Online objects.
+// elt is a command line tool for looking up Eve Online objects.
 package main
 
 import (
@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	appName        = "everef"
+	appName        = "elt"
 	userAgentEmail = "kalkoken87@gmail.com"
-	sourceURL      = "https://github.com/ErikKalkoken/everef"
+	sourceURL      = "https://github.com/ErikKalkoken/elt"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -45,9 +45,9 @@ Agents, Alliances, Characters, Constellations, Corporations, Factions, Regions, 
 
 Example:
 
-everef 30000142 "Erik Kalkoken"
+elt 30000142 "Erik Kalkoken"
 
-For more information please see this website: https://github.com/ErikKalkoken/everef`
+For more information please see this website: ` + sourceURL
 
 func run(args []string, _ io.Reader, stdout io.Writer) error {
 	dbFilepath, err := xdg.CacheFile(appName + "/cache.db")

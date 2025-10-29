@@ -1,4 +1,4 @@
-module github.com/ErikKalkoken/everef
+module github.com/ErikKalkoken/elt
 
 go 1.24.3
 

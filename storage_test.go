@@ -12,7 +12,7 @@ import (
 )
 
 func TestStorageEveEntites(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "everef.db")
+	p := filepath.Join(t.TempDir(), "elt.db")
 	db, err := bolt.Open(p, 0600, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestStorageEveEntites(t *testing.T) {
 }
 
 func TestStorageEveTypes(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "everef.db")
+	p := filepath.Join(t.TempDir(), "elt.db")
 	db, err := bolt.Open(p, 0600, nil)
 	if err != nil {
 		t.Fatal(err)
