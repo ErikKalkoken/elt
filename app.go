@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/antihax/goesi"
@@ -40,76 +42,66 @@ func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
 	return a
 }
 
-func (a App) DumpCache(ctx context.Context, cmd *cli.Command) error {
-	entities, err := a.st.ListEveEntity()
-	if err != nil {
-		return err
+// Run is the main entry point called from CLI.
+func (a App) Run(ctx context.Context, cmd *cli.Command) error {
+	// Set log level
+	m := map[string]slog.Level{
+		"debug": slog.LevelDebug,
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"error": slog.LevelError,
 	}
-	fmt.Fprintln(a.out, "Entities")
-	printTableWithSort(
-		a.out,
-		[]string{"ID", "Name", "Category", "Timeout"},
-		entities,
-		func(ee EveEntity) []any {
-			return []any{ee.EntityID, ee.Name, ee.Category.Display(), ee.Timestamp.Format(time.RFC3339)}
-		})
+	l, ok := m[strings.ToLower(cmd.String("log-level"))]
+	if !ok {
+		return fmt.Errorf("valid log levels are: %s", strings.Join(slices.Collect(maps.Keys(m)), ", "))
+	}
+	slog.SetLogLoggerLevel(l)
 
-	categories, err := a.st.ListEveCategory()
-	if err != nil {
-		return err
+	// Clear cache
+	if cmd.Bool("clear-cache") {
+		n, err := a.st.Clear()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "%d objects deleted\n", n)
 	}
-	fmt.Fprintln(a.out, "Categories")
-	printTableWithSort(
-		a.out,
-		[]string{"ID", "Name", "Timestamp"},
-		categories,
-		func(o EveCategory) []any {
-			return []any{o.CategoryID, o.Name, o.Timestamp.Format(time.RFC3339)}
-		})
 
-	groups, err := a.st.ListEveGroup()
-	if err != nil {
-		return err
+	// Parse arguments
+	var (
+		ids     []int32
+		invalid []int
+		names   []string
+	)
+	for _, arg := range cmd.StringArgs("Value") {
+		id, err := strconv.Atoi(arg)
+		if err != nil {
+			names = append(names, arg)
+		} else {
+			id32 := int32(id)
+			if int(id32) != id {
+				invalid = append(invalid, id)
+				continue
+			}
+			ids = append(ids, id32)
+		}
 	}
-	fmt.Fprintln(a.out, "Groups")
-	printTableWithSort(
-		a.out,
-		[]string{"ID", "Name", "CategoryID", "Timestamp"},
-		groups,
-		func(o EveGroup) []any {
-			return []any{o.GroupID, o.Name, o.CategoryID, o.Timestamp.Format(time.RFC3339)}
-		})
+	if len(invalid) > 0 {
+		fmt.Fprintf(a.out, "Ignoring invalid IDs: %v\n", invalid)
+	}
 
-	types, err := a.st.ListEveType()
+	// Resolve ids and names
+	oo1, err := a.resolveIDs(ids)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(a.out, "Types")
-	printTableWithSort(
-		a.out,
-		[]string{"ID", "Name", "GroupID", "Timestamp"},
-		types,
-		func(o EveType) []any {
-			return []any{o.TypeID, o.Name, o.GroupID, o.Timestamp.Format(time.RFC3339)}
-		})
-	return nil
-}
+	oo2, err := a.resolveNames(names)
+	if err != nil {
+		return err
+	}
+	oo := slices.Concat(oo1, oo2)
 
-func (a App) ClearCache(ctx context.Context, cmd *cli.Command) error {
-	n, err := a.st.Clear()
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(a.out, "%d objects deleted\n", n)
-	return nil
-}
-
-func (a App) ResolveIDs(ctx context.Context, cmd *cli.Command) error {
-	entities, err := a.resolveIDs(cmd.Int32Args("ID"))
-	if err != nil {
-		return err
-	}
-	if err := a.fetchAndPrintResults(entities); err != nil {
+	// Print results
+	if err := a.fetchAndPrintResults(oo); err != nil {
 		return err
 	}
 	return nil
@@ -308,20 +300,17 @@ func (a App) resolveIDsFromAPI2(ids []int32) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func (a App) ResolveNames(ctx context.Context, cmd *cli.Command) error {
-	entities1, missing, err := a.resolveNamesFromStorage(cmd.StringArgs("Name"))
+func (a App) resolveNames(names []string) ([]EveEntity, error) {
+	oo1, missing, err := a.resolveNamesFromStorage(names)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	entities2, err := a.resolveNamesFromAPI(missing)
+	oo2, err := a.resolveNamesFromAPI(missing)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	entities := slices.Concat(entities1, entities2)
-	if err := a.fetchAndPrintResults(entities); err != nil {
-		return err
-	}
-	return nil
+	oo := slices.Concat(oo1, oo2)
+	return oo, nil
 }
 
 func (a App) resolveNamesFromStorage(names []string) ([]EveEntity, []string, error) {

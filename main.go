@@ -7,10 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
-	"slices"
-	"strings"
 
 	"github.com/adrg/xdg"
 	"github.com/antihax/goesi"
@@ -61,7 +58,7 @@ func run(args []string, _ io.Reader, stdout io.Writer) error {
 	app := NewApp(esiClient, st, stdout)
 
 	cmd := &cli.Command{
-		Usage:   "A command line tool for getting information about Eve Online objects.",
+		Usage:   "A command line tool for looking up Eve Online objects.",
 		Version: Version,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -70,82 +67,20 @@ func run(args []string, _ io.Reader, stdout io.Writer) error {
 				Value:   "info",
 				Usage:   "log level for this sessions",
 			},
+			&cli.BoolFlag{Name: "clear-cache"},
 		},
-		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
-			if err := setLogLevel(cmd); err != nil {
-				return ctx, err
-			}
-			return ctx, nil
-		},
-		Commands: []*cli.Command{
-			{
-				Name:   "ids",
-				Usage:  "resolves entities from IDs",
-				Action: app.ResolveIDs,
-				Arguments: []cli.Argument{
-					&cli.Int32Args{
-						Name: "ID",
-						Min:  1,
-						Max:  -1,
-					},
-				},
-			},
-			{
-				Name:   "names",
-				Usage:  "resolve entities from names",
-				Action: app.ResolveNames,
-				Arguments: []cli.Argument{
-					&cli.StringArgs{
-						Name: "Name",
-						Min:  1,
-						Max:  -1,
-					},
-				},
-			},
-			{
-				Name:  "system",
-				Usage: "system utilities",
-				Commands: []*cli.Command{
-					{
-						Name:   "dump-cache",
-						Usage:  "dump cached objects",
-						Action: app.DumpCache,
-					},
-					{
-						Name:   "clear-cache",
-						Usage:  "clear all cached objects",
-						Action: app.ClearCache,
-					},
-					{
-						Name:  "files",
-						Usage: "list files in use",
-						Action: func(ctx context.Context, c *cli.Command) error {
-							fmt.Printf("DB: %s\n", dbFilepath)
-							return nil
-						},
-					},
-				},
+		Action: app.Run,
+		Arguments: []cli.Argument{
+			&cli.StringArgs{
+				Name:      "Value",
+				UsageText: "An ID or a name of an EVE online object.",
+				Min:       1,
+				Max:       -1,
 			},
 		},
 	}
 	if err := cmd.Run(context.Background(), args); err != nil {
 		return err
 	}
-	return nil
-}
-
-func setLogLevel(cmd *cli.Command) error {
-	m := map[string]slog.Level{
-		"debug": slog.LevelDebug,
-		"info":  slog.LevelInfo,
-		"warn":  slog.LevelWarn,
-		"error": slog.LevelError,
-	}
-	l, ok := m[strings.ToLower(cmd.String("log-level"))]
-	if !ok {
-		msg := fmt.Sprintf("valid log levels are %s", strings.Join(slices.Collect(maps.Keys(m)), ", "))
-		return cli.Exit(msg, 1)
-	}
-	slog.SetLogLoggerLevel(l)
 	return nil
 }
