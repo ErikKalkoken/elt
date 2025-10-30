@@ -599,7 +599,7 @@ func TestApp(t *testing.T) {
 		t.Run(fmt.Sprintf("can resolve %s ID", o.Category), func(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer
-			a := NewApp(esiClient, st, &buf, 0)
+			a := NewApp(esiClient, st, &buf)
 			err := a.Run([]string{fmt.Sprint(o.ID)}, false)
 			if !assert.NoError(t, err) {
 				t.Fatal(err)
@@ -616,7 +616,7 @@ func TestApp(t *testing.T) {
 		t.Run(fmt.Sprintf("can resolve %s name", o.Category), func(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer
-			a := NewApp(esiClient, st, &buf, 0)
+			a := NewApp(esiClient, st, &buf)
 			err := a.Run([]string{o.Name}, false)
 			if !assert.NoError(t, err) {
 				t.Fatal(err)

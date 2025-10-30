@@ -49,6 +49,7 @@ func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath str
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
 	clearCache := fs.BoolP("clear-cache", "c", false, "clear the local cache before the lookup")
 	logLevel := fs.StringP("log-level", "l", "info", "set the log level for the current run")
+	width2 := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
 	showVersion := fs.BoolP("version", "v", false, "print the version")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
@@ -111,7 +112,8 @@ Examples:
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, userAgentEmail, sourceURL)
 	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	app := NewApp(esiClient, st, stdout, width)
+	app := NewApp(esiClient, st, stdout)
+	app.Width = *width2
 	err = app.Run(fs.Args(), *clearCache)
 	if err != nil {
 		return err

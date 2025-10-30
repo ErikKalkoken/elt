@@ -31,18 +31,19 @@ type result struct {
 }
 
 type App struct {
+	Width  int
+	NoWrap bool
+
 	esiClient *goesi.APIClient
 	out       io.Writer
 	st        *Storage
-	width     int
 }
 
-func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer, width int) App {
+func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
 	a := App{
 		esiClient: esiClient,
 		out:       out,
 		st:        st,
-		width:     width,
 	}
 	return a
 }
@@ -81,7 +82,7 @@ func (a App) Run(args []string, clearCache bool) error {
 
 	// Resolve ids and names
 	var bar *progressbar.ProgressBar
-	if a.width > 0 {
+	if a.Width > 0 {
 		bar = progressbar.NewOptions(-1,
 			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
 			progressbar.OptionSetDescription("Processing..."),
@@ -1129,7 +1130,7 @@ func makeSortedTable[T EveObject](a App, headers []string, objs []T, makeRow fun
 			Settings: tw.Settings{Separators: tw.Separators{BetweenRows: tw.On}},
 		})),
 		tablewriter.WithConfig(tablewriter.Config{
-			MaxWidth: a.width,
+			MaxWidth: a.Width,
 			Row: tw.CellConfig{
 				Formatting: tw.CellFormatting{AutoWrap: tw.WrapNormal},
 				Alignment:  tw.CellAlignment{Global: tw.AlignLeft}, // Left-align rows
