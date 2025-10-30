@@ -23,13 +23,13 @@ func TestApp(t *testing.T) {
 	}
 	// creating test cases
 	primaryEntities := []entity{
-		{3008588, "Pahranat Mehatoor ", "agent"},
 		{10000030, "Heimatar", "region"},
 		{1000035, "Caldari Navy", "corporation"},
 		{1000180, "State Protectorate", "corporation"},
 		{1531, "Caldari Trading Station", "inventory_type"},
 		{20000372, "Hed", "constellation"},
 		{30002537, "Amamake", "solar_system"},
+		{3008588, "Pahranat Mehatoor ", "agent"},
 		{500001, "Caldari State", "faction"},
 		{60002590, "Amamake VI - Moon 1 - Expert Distribution Warehouse", "station"},
 		{93330670, "Erik Kalkoken", "character"},
@@ -654,4 +654,49 @@ func TestApp(t *testing.T) {
 			assert.NotContains(t, got, "INVALID")
 		})
 	}
+
+	t.Run("can resolve a mix of ID and name", func(t *testing.T) {
+		st.Clear()
+		var buf bytes.Buffer
+		a := NewApp(esiClient, st, &buf)
+		a.SpinnerDisabled = true
+		err := a.Run([]string{fmt.Sprint(93330670), "Amamake"})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := buf.String()
+		assert.Contains(t, got, fmt.Sprint(93330670))
+		assert.Contains(t, got, "Erik Kalkoken")
+		assert.Contains(t, got, fmt.Sprint(30002537))
+		assert.Contains(t, got, "Amamake")
+		assert.NotContains(t, got, "INVALID")
+	})
+
+	t.Run("can show shown when an ID is invalid", func(t *testing.T) {
+		st.Clear()
+		var buf bytes.Buffer
+		a := NewApp(esiClient, st, &buf)
+		a.SpinnerDisabled = true
+		err := a.Run([]string{fmt.Sprint(666)})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := buf.String()
+		assert.Contains(t, got, fmt.Sprint(666))
+		assert.Contains(t, got, "INVALID")
+	})
+
+	t.Run("can show shown when a Name is invalid", func(t *testing.T) {
+		st.Clear()
+		var buf bytes.Buffer
+		a := NewApp(esiClient, st, &buf)
+		a.SpinnerDisabled = true
+		err := a.Run([]string{"xyz"})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := buf.String()
+		assert.Contains(t, got, "xyz")
+		assert.Contains(t, got, "INVALID")
+	})
 }
