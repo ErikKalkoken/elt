@@ -6,12 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/antihax/goesi"
@@ -20,7 +18,6 @@ import (
 	"github.com/olekukonko/tablewriter/renderer"
 	"github.com/olekukonko/tablewriter/tw"
 	"github.com/schollz/progressbar/v3"
-	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -50,41 +47,22 @@ func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer, width int) A
 	return a
 }
 
-// Run is the main entry point called from CLI.
-func (a App) Run(ctx context.Context, cmd *cli.Command) error {
-	// Set log level
-	m := map[string]slog.Level{
-		"debug": slog.LevelDebug,
-		"info":  slog.LevelInfo,
-		"warn":  slog.LevelWarn,
-		"error": slog.LevelError,
-	}
-	l, ok := m[strings.ToLower(cmd.String("log-level"))]
-	if !ok {
-		return fmt.Errorf("valid log levels are: %s", strings.Join(slices.Collect(maps.Keys(m)), ", "))
-	}
-	slog.SetLogLoggerLevel(l)
-
-	// Clear cache
-	if cmd.Bool("clear-cache") {
+// Run is the main entry point.
+func (a App) Run(args []string, clearCache bool) error {
+	if clearCache {
 		n, err := a.st.Clear()
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(a.out, "%d objects deleted\n", n)
 	}
-
-	// Parse arguments
-	if cmd.NArg() == 0 {
-		cli.ShowAppHelp(cmd)
-		return nil
-	}
+	// Parse args
 	var (
 		ids     []int32
 		invalid []int
 		names   []string
 	)
-	for _, arg := range cmd.Args().Slice() {
+	for _, arg := range args {
 		id, err := strconv.Atoi(arg)
 		if err != nil {
 			names = append(names, arg)
@@ -101,13 +79,13 @@ func (a App) Run(ctx context.Context, cmd *cli.Command) error {
 		fmt.Fprintf(a.out, "Ignoring invalid IDs: %v\n", invalid)
 	}
 
+	// Resolve ids and names
 	bar := progressbar.NewOptions(-1,
 		progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
 		progressbar.OptionSetDescription("Processing..."),
 		progressbar.OptionSetRenderBlankState(true),
 		progressbar.OptionSetWriter(a.out),
 	)
-	// Resolve ids and names
 	g := new(errgroup.Group)
 	var oo1, oo2 []EveEntity
 	if len(ids) > 0 {

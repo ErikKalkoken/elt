@@ -2,17 +2,19 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/adrg/xdg"
 	"github.com/antihax/goesi"
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/urfave/cli/v3"
+	"github.com/spf13/pflag"
 	bolt "go.etcd.io/bbolt"
 	"golang.org/x/term"
 )
@@ -36,20 +38,52 @@ func main() {
 	}
 }
 
-const description = `This command looks up EVE Online objects from the game server and prints them in the terminal.
-
-You can pass in a mix of EVE IDs and names. Please use quotes for names with multiple words.
-
-EVE objects of the following categories are supported:
-Agents, Alliances, Characters, Constellations, Corporations, Factions, Regions, Stations, Solar Systems, Types
-
-Example:
-
-elt 30000142 "Erik Kalkoken"
-
-For more information please see this website: ` + sourceURL
-
 func run(args []string, _ io.Reader, stdout io.Writer) error {
+	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
+	clearCache := fs.BoolP("clear-cache", "c", false, "clear the local cache before the lookup")
+	logLevel := fs.StringP("log-level", "l", "info", "set the log level for the current run")
+	showVersion := fs.BoolP("version", "v", false, "print the version")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, `Usage:
+  elt [options] value [value ...]
+
+Description:
+  This command looks up EVE Online objects from the game server and prints them in the terminal.
+  For more information please see this website: `+sourceURL+`
+
+Options:
+`)
+		fs.PrintDefaults()
+		fmt.Fprintln(os.Stderr, `
+Examples:
+  elt 30000142
+  elt "Erik Kalkoken" 603`)
+	}
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *showVersion {
+		fmt.Fprintf(stdout, "Version %s\n", Version)
+		return nil
+	}
+	// Set log level
+	m := map[string]slog.Level{
+		"debug": slog.LevelDebug,
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"error": slog.LevelError,
+	}
+	l, ok := m[strings.ToLower(*logLevel)]
+	if !ok {
+		return fmt.Errorf("valid log levels are: %s", strings.Join(slices.Collect(maps.Keys(m)), ", "))
+	}
+	slog.SetLogLoggerLevel(l)
+	if fs.NArg() == 0 {
+		fs.Usage()
+		return nil
+	}
+
+	// Setup storage
 	dbFilepath, err := xdg.CacheFile(appName + "/cache.db")
 	if err != nil {
 		return err
@@ -64,6 +98,7 @@ func run(args []string, _ io.Reader, stdout io.Writer) error {
 		return err
 	}
 
+	// Setup clients
 	rhc := retryablehttp.NewClient()
 	rhc.Logger = slog.Default()
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, userAgentEmail, sourceURL)
@@ -74,29 +109,30 @@ func run(args []string, _ io.Reader, stdout io.Writer) error {
 		return err
 	}
 	app := NewApp(esiClient, st, stdout, width)
-
-	cmd := &cli.Command{
-		Usage:       "A command line tool for looking up Eve Online objects.",
-		ArgsUsage:   "value1 [value2 value3 ...]",
-		Description: description,
-		Version:     Version,
-		Authors:     []any{"Erik Kalkoken"},
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "log-level",
-				Aliases: []string{"l"},
-				Value:   "info",
-				Usage:   "log level for this sessions",
-			},
-			&cli.BoolFlag{
-				Name:  "clear-cache",
-				Usage: "Clears the local cache before the lookup",
-			},
-		},
-		Action: app.Run,
-	}
-	if err := cmd.Run(context.Background(), args); err != nil {
+	err = app.Run(fs.Args(), *clearCache)
+	if err != nil {
 		return err
 	}
+	// cmd := &cli.Command{
+	// 	Usage:       "A command line tool for looking up Eve Online objects.",
+	// 	ArgsUsage:   "value1 [value2 value3 ...]",
+	// 	Description: description,
+	// 	Version:     Version,
+	// 	Authors:     []any{"Erik Kalkoken"},
+	// 	Flags: []cli.Flag{
+	// 		&cli.StringFlag{
+	// 			Name:    "log-level",
+	// 			Aliases: []string{"l"},
+	// 			Value:   "info",
+	// 			Usage:   "log level for this sessions",
+	// 		},
+	// 		&cli.BoolFlag{
+	// 			Name:  "clear-cache",
+	// 			Usage: "Clears the local cache before the lookup",
+	// 		},
+	// 	},
+	// 	Action: app.Run,
+	// }
+
 	return nil
 }
