@@ -1,4 +1,4 @@
-# elt
+# elt - EVE Lookup Tool
 
 **elt** is a command line tool for looking up Eve Online objects.
 
@@ -7,6 +7,7 @@
 [![codecov](https://codecov.io/gh/ErikKalkoken/elt/graph/badge.svg?token=vEFFr2HDZ9)](https://codecov.io/gh/ErikKalkoken/elt)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ErikKalkoken/elt)](https://goreportcard.com/report/github.com/ErikKalkoken/elt)
 [![GitHub License](https://img.shields.io/github/license/ErikKalkoken/elt)](https://github.com/ErikKalkoken/elt?tab=MIT-1-ov-file#readme)
+[![chat](https://img.shields.io/discord/790364535294132234)](https://discord.gg/tVSCQEVJnJ)
 
 [![download](https://github.com/user-attachments/assets/c8de336f-8c42-4501-86bb-dbc9c66db1f0)](https://github.com/ErikKalkoken/elt/releases/latest)
 
@@ -31,7 +32,7 @@ Main features:
   - Types
 - Available for Windows, Linux and macOS
 
-**elt** is an short for EVE Lookup Tool.
+**elt** is short for EVE Lookup Tool.
 
 ## Usage
 
