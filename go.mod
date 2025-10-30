@@ -6,6 +6,7 @@ require (
 	github.com/adrg/xdg v0.5.3
 	github.com/antihax/goesi v0.0.0-20250326124837-837c9408dfa4
 	github.com/hashicorp/go-retryablehttp v0.7.8
+	github.com/jarcoal/httpmock v1.4.1
 	github.com/olekukonko/tablewriter v1.1.0
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/spf13/pflag v1.0.10
