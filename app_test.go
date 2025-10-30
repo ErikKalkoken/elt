@@ -38,6 +38,7 @@ func TestApp(t *testing.T) {
 	}
 	// used indirectly in test cases for id/name resolution only
 	secondaryEntities := []entity{
+		{0, "#System", "inventory_type"},
 		{1000080, "Ministry of War", "corporation"},
 		{1000023, "Expert Distribution", "corporation"},
 	}
@@ -698,5 +699,19 @@ func TestApp(t *testing.T) {
 		got := buf.String()
 		assert.Contains(t, got, "xyz")
 		assert.Contains(t, got, "INVALID")
+	})
+
+	t.Run("should ignore ID 0", func(t *testing.T) {
+		st.Clear()
+		var buf bytes.Buffer
+		a := NewApp(esiClient, st, &buf)
+		a.SpinnerDisabled = true
+		err := a.Run([]string{fmt.Sprint(0), fmt.Sprint(93330670)})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := buf.String()
+		assert.Contains(t, got, fmt.Sprint(93330670))
+		assert.Contains(t, got, "Erik Kalkoken")
 	})
 }
