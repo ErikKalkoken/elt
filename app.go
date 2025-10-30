@@ -80,12 +80,15 @@ func (a App) Run(args []string, clearCache bool) error {
 	}
 
 	// Resolve ids and names
-	bar := progressbar.NewOptions(-1,
-		progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
-		progressbar.OptionSetDescription("Processing..."),
-		progressbar.OptionSetRenderBlankState(true),
-		progressbar.OptionSetWriter(a.out),
-	)
+	var bar *progressbar.ProgressBar
+	if a.width > 0 {
+		bar = progressbar.NewOptions(-1,
+			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
+			progressbar.OptionSetDescription("Processing..."),
+			progressbar.OptionSetRenderBlankState(true),
+			progressbar.OptionSetWriter(a.out),
+		)
+	}
 	g := new(errgroup.Group)
 	var oo1, oo2 []EveEntity
 	if len(ids) > 0 {
@@ -119,7 +122,9 @@ func (a App) Run(args []string, clearCache bool) error {
 		return err
 	}
 
-	bar.Clear()
+	if bar != nil {
+		bar.Clear()
+	}
 
 	// Print results
 	for _, r := range results {
@@ -205,8 +210,7 @@ func (a App) buildResults(entities []EveEntity) ([]result, error) {
 					return o.Category != CategoryInvalid
 				})
 				t := makeSortedTable(
-					a.out,
-					a.width,
+					a,
 					[]string{"ID", "Name", "Category"},
 					entities2, func(o EveEntity) []any {
 						return []any{o.EntityID, o.Name, o.Category.Display()}
@@ -219,8 +223,7 @@ func (a App) buildResults(entities []EveEntity) ([]result, error) {
 					return err
 				}
 				t := makeSortedTable(
-					a.out,
-					a.width,
+					a,
 					[]string{"ID", "Name", "Category"},
 					entities,
 					func(o EveEntity) []any {
@@ -495,8 +498,7 @@ func (a App) buildCharacterTable(ids []int32) (*tablewriter.Table, error) {
 		return nil, err
 	}
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name", "CorporationID", "CorporationName", "AllianceID", "AllianceName", "NPC"},
 		characters,
 		func(o EveCharacter) []any {
@@ -551,8 +553,7 @@ func (a App) buildCorporationTable(ids []int32) (*tablewriter.Table, error) {
 	}
 	allianceLookup := makeLookupMap(alliances)
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name", "Ticker", "Members", "AllianceID", "AllianceName", "NPC"},
 		corporations,
 		func(o EveCorporation) []any {
@@ -597,8 +598,7 @@ func (a App) buildAllianceTable(ids []int32) (*tablewriter.Table, error) {
 		return nil, err
 	}
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name", "Ticker"},
 		alliances,
 		func(o EveAlliance) []any {
@@ -654,8 +654,7 @@ func (a App) buildFactionTable(ids []int32) (*tablewriter.Table, error) {
 	}
 	corporationLookup := makeLookupMap(corporations)
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name", "CorporationID", "CorporationName", "MilitiaCorporationID", "MilitiaCorporationName"},
 		factions,
 		func(o EveFaction) []any {
@@ -745,15 +744,14 @@ func (a App) buildStationTable(ids []int32) (*tablewriter.Table, error) {
 		return nil, err
 	}
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name", "SolarSystemID", "SolarSystemName", "TypeID", "TypeName", "OwnerID", "OwnerName"},
 		stations,
 		func(o EveStation) []any {
 			typeName := typeLookup[o.TypeID].Name
 			ownerName := ownerLookup[o.OwnerID].Name
 			solarSystemName := solarSystemLookup[o.SolarSystemID].Name
-			return []any{o.TypeID, o.Name, o.SolarSystemID, solarSystemName, o.TypeID, typeName, o.OwnerID, ownerName}
+			return []any{o.StationID, o.Name, o.SolarSystemID, solarSystemName, o.TypeID, typeName, o.OwnerID, ownerName}
 		})
 	return t, nil
 }
@@ -811,8 +809,7 @@ func (a App) buildTypeTable(ids []int32) (*tablewriter.Table, error) {
 	}
 	categoryLookup := makeLookupMap(categories)
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name", "GroupID", "GroupName", "CategoryID", "CategoryName", "Published"},
 		types,
 		func(o EveType) []any {
@@ -930,8 +927,7 @@ func (a App) buildSolarSystemTable(ids []int32) (*tablewriter.Table, error) {
 	}
 	regionLookup := makeLookupMap(regions)
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name", "ConstellationID", "ConstellationName", "RegionID", "RegionName", "Security"},
 		types,
 		func(o EveSolarSystem) []any {
@@ -985,8 +981,7 @@ func (a App) buildConstellationTable(ids []int32) (*tablewriter.Table, error) {
 	}
 	regionLookup := makeLookupMap(regions)
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name", "RegionID", "RegionName"},
 		constellations,
 		func(o EveConstellation) []any {
@@ -1028,13 +1023,13 @@ func (a App) buildRegionTable(ids []int32) (*tablewriter.Table, error) {
 		return nil, err
 	}
 	t := makeSortedTable(
-		a.out,
-		a.width,
+		a,
 		[]string{"ID", "Name"},
 		regions,
 		func(o EveRegion) []any {
 			return []any{o.ID(), o.Name}
-		})
+		},
+	)
 	return t, nil
 }
 
@@ -1121,7 +1116,7 @@ func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) 
 	return objs, nil
 }
 
-func makeSortedTable[T EveObject](out io.Writer, width int, headers []string, objs []T, makeRow func(T) []any) *tablewriter.Table {
+func makeSortedTable[T EveObject](a App, headers []string, objs []T, makeRow func(T) []any) *tablewriter.Table {
 	slices.SortFunc(objs, func(a, b T) int {
 		return cmp.Compare(a.ID(), b.ID())
 	})
@@ -1129,12 +1124,12 @@ func makeSortedTable[T EveObject](out io.Writer, width int, headers []string, ob
 	for _, o := range objs {
 		rows = append(rows, makeRow(o))
 	}
-	t := tablewriter.NewTable(out,
+	t := tablewriter.NewTable(a.out,
 		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
 			Settings: tw.Settings{Separators: tw.Separators{BetweenRows: tw.On}},
 		})),
 		tablewriter.WithConfig(tablewriter.Config{
-			MaxWidth: width,
+			MaxWidth: a.width,
 			Row: tw.CellConfig{
 				Formatting: tw.CellFormatting{AutoWrap: tw.WrapNormal},
 				Alignment:  tw.CellAlignment{Global: tw.AlignLeft}, // Left-align rows
