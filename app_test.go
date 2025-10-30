@@ -21,13 +21,17 @@ func TestApp(t *testing.T) {
 		Category string `json:"category"`
 	}
 	entities := []entity{
+		{1531, "Caldari Trading Station", "inventory_type"},
+		{500001, "Caldari State", "faction"},
 		{10000030, "Heimatar", "region"},
 		{20000372, "Hed", "constellation"},
 		{30002537, "Amamake", "solar_system"},
+		{1000035, "Caldari Navy", "corporation"},
+		{1000180, "State Protectorate", "corporation"},
 		{93330670, "Erik Kalkoken", "character"},
 		{98267621, "The Congregation", "corporation"},
 		{99013305, "RAPID HEAVY ROPERS", "alliance"},
-		{60002590, "Amamake VI - Moon 1 - Expert Distribution Warehouse", "staion"},
+		{60002590, "Amamake VI - Moon 1 - Expert Distribution Warehouse", "station"},
 	}
 	entityLookup := make(map[int32]entity)
 	for _, o := range entities {
@@ -77,9 +81,23 @@ func TestApp(t *testing.T) {
 				}
 				matches = append(matches, o)
 			}
+			categoryLookup := map[string]string{
+				"alliance":       "alliances",
+				"character":      "characters",
+				"constellation":  "constellations",
+				"corporation":    "corporations",
+				"faction":        "factions",
+				"inventory_type": "inventory_types",
+				"region":         "regions",
+				"solar_system":   "systems",
+				"station":        "stations",
+			}
 			result := make(map[string][]map[string]any)
 			for _, m := range matches {
-				c := m.Category + "s"
+				c, found := categoryLookup[m.Category]
+				if !found {
+					panic("Unknown category: " + m.Category)
+				}
 				result[c] = append(result[c], map[string]any{
 					"id":   m.ID,
 					"name": m.Name,
@@ -118,9 +136,52 @@ func TestApp(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
+		`=~^https://esi\.evetech\.net/v\d+/universe/categories/(\d+)/`,
+		func(req *http.Request) (*http.Response, error) {
+			data := map[int64]map[string]any{
+				3: {
+					"category_id": 3,
+					"groups": []int{
+						15,
+						16,
+					},
+					"name":      "Station",
+					"published": false,
+				},
+			}
+			return makeObjectEndpoint(req, data)
+		},
+	)
+	httpmock.RegisterResponder(
+		"GET",
 		`=~^https://esi\.evetech\.net/v\d+/corporations/(\d+)/`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
+				1000035: {
+					"ceo_id":          3004069,
+					"creator_id":      1,
+					"description":     "The Caldari Navy is smaller in personnel and total ships than both the Federation Navy and the Imperial Navy, yet they have more battleships than any other fleet and the average age of the Caldari ships is considerably less. This is because the Caldari are constantly replacing their oldest ships with newer ones, with better hi-tech equipment. The strategic doctrine of the Caldari Navy is simple: to be able to defeat any other navy in the world. Most experts believe it is.",
+					"home_station_id": 60003754,
+					"member_count":    160,
+					"name":            "Caldari Navy",
+					"shares":          100000000,
+					"tax_rate":        0,
+					"ticker":          "CN",
+					"url":             "",
+				},
+				1000180: {
+					"ceo_id":          3018995,
+					"creator_id":      1,
+					"description":     "We are the State, and we have claimed our long-lost homeland. Now we are at war; united, whole and full of fire and purpose. The State calls you, capsuleer, for it needs your strength and your leadership to fend off the encroaching Gallente menace. The State will not fall. Join us. Fight. Conquer.",
+					"faction_id":      500001,
+					"home_station_id": 60015069,
+					"member_count":    47934,
+					"name":            "State Protectorate",
+					"shares":          0,
+					"tax_rate":        0,
+					"ticker":          "SPROT",
+					"url":             "",
+				},
 				98267621: {
 					"alliance_id":     99013305,
 					"ceo_id":          1559150123,
@@ -182,6 +243,104 @@ func TestApp(t *testing.T) {
 						30002540,
 						30002541,
 						30002542,
+					},
+				},
+			}
+			return makeObjectEndpoint(req, data)
+		},
+	)
+	httpmock.RegisterResponder(
+		"GET",
+		`=~^https://esi\.evetech\.net/v\d+/universe/factions/`,
+		httpmock.NewJsonResponderOrPanic(200, []map[string]any{
+			{
+				"corporation_id":         1000035,
+				"description":            "The Caldari State is ruled by several mega-corporations. There is no central government to speak of - all territories within the State are owned and ruled by corporations. Duty and discipline are required traits in Caldari citizens, plus unquestioning loyalty to the corporation they live to serve. The corporations compete aggressively amongst themselves and with companies outside the State, resulting in a highly capitalistic society.",
+				"faction_id":             500001,
+				"is_unique":              true,
+				"militia_corporation_id": 1000180,
+				"name":                   "Caldari State",
+				"size_factor":            5,
+				"solar_system_id":        30000145,
+				"station_count":          1527,
+				"station_system_count":   528,
+			},
+		}),
+	)
+	httpmock.RegisterResponder(
+		"GET",
+		`=~^https://esi\.evetech\.net/v\d+/universe/groups/(\d+)/`,
+		func(req *http.Request) (*http.Response, error) {
+			data := map[int64]map[string]any{
+				15: {
+					"category_id": 3,
+					"group_id":    15,
+					"name":        "Station",
+					"published":   false,
+					"types": []int{
+						54,
+						56,
+						57,
+						58,
+						59,
+						1529,
+						1530,
+						1531,
+						1926,
+						1927,
+						1928,
+						1929,
+						1930,
+						1931,
+						1932,
+						2071,
+						2496,
+						2497,
+						2498,
+						2499,
+						2500,
+						2501,
+						2502,
+						3864,
+						3865,
+						3866,
+						3867,
+						3868,
+						3869,
+						3870,
+						3871,
+						3872,
+						4023,
+						4024,
+						9856,
+						9857,
+						9867,
+						9868,
+						9873,
+						10795,
+						12242,
+						12294,
+						12295,
+						19757,
+						21642,
+						21644,
+						21645,
+						21646,
+						22296,
+						22297,
+						22298,
+						29323,
+						29387,
+						29388,
+						29389,
+						29390,
+						34325,
+						34326,
+						52678,
+						59956,
+						71361,
+						74397,
+						78334,
 					},
 				},
 			}
@@ -336,14 +495,14 @@ func TestApp(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/systems/(\d+)/`,
+		`=~^https://esi\.evetech\.net/v\d+/universe/stations/(\d+)/`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				60002590: {
 					"max_dockable_ship_volume": 50000000,
 					"name":                     "Amamake VI - Moon 1 - Expert Distribution Warehouse",
 					"office_rental_cost":       10000,
-					"owner":                    98267621,
+					"owner":                    1000035, // modified
 					"position": map[string]any{
 						"x": -442534010880,
 						"y": -58789109760,
@@ -374,6 +533,55 @@ func TestApp(t *testing.T) {
 			return makeObjectEndpoint(req, data)
 		},
 	)
+	httpmock.RegisterResponder(
+		"GET",
+		`=~^https://esi\.evetech\.net/v\d+/universe/types/(\d+)/`,
+		func(req *http.Request) (*http.Response, error) {
+			data := map[int64]map[string]any{
+				1531: {
+					"capacity":    0,
+					"description": "",
+					"dogma_attributes": []map[string]any{
+						{
+							"attribute_id": 161,
+							"value":        1,
+						},
+						{
+							"attribute_id": 162,
+							"value":        33413,
+						},
+						{
+							"attribute_id": 4,
+							"value":        0,
+						},
+						{
+							"attribute_id": 38,
+							"value":        0,
+						},
+						{
+							"attribute_id": 9,
+							"value":        100000000,
+						},
+						{
+							"attribute_id": 524,
+							"value":        1,
+						},
+					},
+					"graphic_id":      1017,
+					"group_id":        15,
+					"mass":            0,
+					"name":            "Caldari Trading Station",
+					"packaged_volume": 1,
+					"portion_size":    1,
+					"published":       false,
+					"radius":          33413,
+					"type_id":         1531,
+					"volume":          1,
+				},
+			}
+			return makeObjectEndpoint(req, data)
+		},
+	)
 
 	p := filepath.Join(t.TempDir(), "elt.db")
 	db, err := bolt.Open(p, 0600, nil)
@@ -386,12 +594,30 @@ func TestApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	esiClient := goesi.NewAPIClient(nil, "")
+
 	for _, o := range entities {
 		t.Run(fmt.Sprintf("can resolve %s ID", o.Category), func(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer
 			a := NewApp(esiClient, st, &buf, 0)
 			err := a.Run([]string{fmt.Sprint(o.ID)}, false)
+			if !assert.NoError(t, err) {
+				t.Fatal(err)
+			}
+			got := buf.String()
+			assert.Contains(t, got, EveEntityCategory(o.Category).Display())
+			assert.Contains(t, got, fmt.Sprint(o.ID))
+			assert.Contains(t, got, o.Name)
+			assert.NotContains(t, got, "INVALID")
+		})
+	}
+
+	for _, o := range entities {
+		t.Run(fmt.Sprintf("can resolve %s name", o.Category), func(t *testing.T) {
+			st.Clear()
+			var buf bytes.Buffer
+			a := NewApp(esiClient, st, &buf, 0)
+			err := a.Run([]string{o.Name}, false)
 			if !assert.NoError(t, err) {
 				t.Fatal(err)
 			}
