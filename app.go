@@ -572,7 +572,7 @@ func (a App) buildCorporationTable(ids []int32) (*tablewriter.Table, error) {
 		return nil, err
 	}
 	allianceLookup := makeLookupMap(alliances)
-	makeSortedTable(
+	t := makeSortedTable(
 		a.out,
 		a.width,
 		[]string{"ID", "Name", "Ticker", "Members", "AllianceID", "AllianceName", "NPC"},
@@ -580,7 +580,7 @@ func (a App) buildCorporationTable(ids []int32) (*tablewriter.Table, error) {
 		func(o EveCorporation) []any {
 			return []any{o.ID(), o.Name, o.Ticker, o.MemberCount, idOrEmpty(o.AllianceID), allianceLookup[o.AllianceID].Name, o.IsNPC()}
 		})
-	return nil, err
+	return t, err
 }
 
 func (a App) fetchCorporations(ids []int32) ([]EveCorporation, error) {

@@ -11,7 +11,7 @@
 
 ## Description
 
-**elt** is a command line tool that looks up EVE Online objects from the game server and prints them in the terminal. It provides a convenient and fast alternative to using a browser or curl commands for quickly resolving Eve IDs or names.
+**elt** is a command line tool that looks up EVE Online objects from the game server and prints them in the terminal. It provides a convenient and fast alternative to using a browser or curl commands for quickly resolving Eve IDs or names in the terminal.
 
 Main features:
 
