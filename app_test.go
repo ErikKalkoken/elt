@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/antihax/goesi"
@@ -20,23 +21,32 @@ func TestApp(t *testing.T) {
 		Name     string `json:"name"`
 		Category string `json:"category"`
 	}
-	entities := []entity{
-		{1531, "Caldari Trading Station", "inventory_type"},
-		{500001, "Caldari State", "faction"},
+	// creating test cases
+	primaryEntities := []entity{
+		{3008588, "Pahranat Mehatoor ", "agent"},
 		{10000030, "Heimatar", "region"},
-		{20000372, "Hed", "constellation"},
-		{30002537, "Amamake", "solar_system"},
 		{1000035, "Caldari Navy", "corporation"},
 		{1000180, "State Protectorate", "corporation"},
+		{1531, "Caldari Trading Station", "inventory_type"},
+		{20000372, "Hed", "constellation"},
+		{30002537, "Amamake", "solar_system"},
+		{500001, "Caldari State", "faction"},
+		{60002590, "Amamake VI - Moon 1 - Expert Distribution Warehouse", "station"},
 		{93330670, "Erik Kalkoken", "character"},
 		{98267621, "The Congregation", "corporation"},
 		{99013305, "RAPID HEAVY ROPERS", "alliance"},
-		{60002590, "Amamake VI - Moon 1 - Expert Distribution Warehouse", "station"},
 	}
+	// used indirectly in test cases for id/name resolution only
+	secondaryEntities := []entity{
+		{1000080, "Ministry of War", "corporation"},
+		{1000023, "Expert Distribution", "corporation"},
+	}
+	entities := slices.Concat(primaryEntities, secondaryEntities)
 	entityLookup := make(map[int32]entity)
 	for _, o := range entities {
 		entityLookup[o.ID] = o
 	}
+
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
@@ -82,6 +92,7 @@ func TestApp(t *testing.T) {
 				matches = append(matches, o)
 			}
 			categoryLookup := map[string]string{
+				"agent":          "agents",
 				"alliance":       "alliances",
 				"character":      "characters",
 				"constellation":  "constellations",
@@ -206,6 +217,16 @@ func TestApp(t *testing.T) {
 		`=~^https://esi\.evetech\.net/v\d+/characters/(\d+)/`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
+				3008588: {
+					"birthday":        "2003-05-04T00:32:00Z",
+					"bloodline_id":    6,
+					"corporation_id":  1000080,
+					"description":     "",
+					"gender":          "female",
+					"name":            "Pahranat Mehatoor",
+					"race_id":         4,
+					"security_status": 0,
+				},
 				93330670: {
 					"alliance_id":     99013305,
 					"birthday":        "2013-05-12T00:19:09Z",
@@ -502,7 +523,7 @@ func TestApp(t *testing.T) {
 					"max_dockable_ship_volume": 50000000,
 					"name":                     "Amamake VI - Moon 1 - Expert Distribution Warehouse",
 					"office_rental_cost":       10000,
-					"owner":                    1000035, // modified
+					"owner":                    1000023,
 					"position": map[string]any{
 						"x": -442534010880,
 						"y": -58789109760,
@@ -595,7 +616,10 @@ func TestApp(t *testing.T) {
 	}
 	esiClient := goesi.NewAPIClient(nil, "")
 
-	for _, o := range entities {
+	for _, o := range primaryEntities {
+		if o.Category == "agent" {
+			continue // not supported for IDs
+		}
 		t.Run(fmt.Sprintf("can resolve %s ID", o.Category), func(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer
@@ -612,7 +636,7 @@ func TestApp(t *testing.T) {
 		})
 	}
 
-	for _, o := range entities {
+	for _, o := range primaryEntities {
 		t.Run(fmt.Sprintf("can resolve %s name", o.Category), func(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer

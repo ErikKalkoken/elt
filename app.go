@@ -469,42 +469,25 @@ func (a App) buildCharacterTable(ids []int32) (*tablewriter.Table, error) {
 	if err != nil {
 		return nil, err
 	}
-	var corporationIDs, allianceIDs []int32
+	var entityIDs []int32
 	for _, o := range characters {
-		corporationIDs = append(corporationIDs, o.CorporationID)
+		entityIDs = append(entityIDs, o.CorporationID)
 		if o.AllianceID != 0 {
-			allianceIDs = append(allianceIDs, o.AllianceID)
+			entityIDs = append(entityIDs, o.AllianceID)
 		}
 	}
-	var allianceLookup map[int32]EveAlliance
-	var corporationLookup map[int32]EveCorporation
-	g := new(errgroup.Group)
-	g.Go(func() error {
-		oo, err := a.fetchCorporations(corporationIDs)
-		if err != nil {
-			return err
-		}
-		corporationLookup = makeLookupMap(oo)
-		return nil
-	})
-	g.Go(func() error {
-		oo, err := a.fetchAlliance(allianceIDs)
-		if err != nil {
-			return err
-		}
-		allianceLookup = makeLookupMap(oo)
-		return nil
-	})
-	if err := g.Wait(); err != nil {
+	ee, err := a.resolveIDs(entityIDs)
+	if err != nil {
 		return nil, err
 	}
+	entityLookup := makeLookupMap(ee)
 	t := makeSortedTable(
 		a,
 		[]string{"ID", "Name", "CorporationID", "CorporationName", "AllianceID", "AllianceName", "NPC"},
 		characters,
 		func(o EveCharacter) []any {
-			corporationName := corporationLookup[o.CorporationID].Name
-			return []any{o.ID(), o.Name, o.CorporationID, corporationName, idOrEmpty(o.AllianceID), allianceLookup[o.AllianceID].Name, o.IsNPC()}
+			corporationName := entityLookup[o.CorporationID].Name
+			return []any{o.ID(), o.Name, o.CorporationID, corporationName, idOrEmpty(o.AllianceID), entityLookup[o.AllianceID].Name, o.IsNPC()}
 		})
 	return t, nil
 }
@@ -542,23 +525,23 @@ func (a App) buildCorporationTable(ids []int32) (*tablewriter.Table, error) {
 	if err != nil {
 		return nil, err
 	}
-	allianceIDs := make([]int32, 0)
+	var entityIDs []int32
 	for _, o := range corporations {
 		if o.AllianceID != 0 {
-			allianceIDs = append(allianceIDs, o.AllianceID)
+			entityIDs = append(entityIDs, o.AllianceID)
 		}
 	}
-	alliances, err := a.fetchAlliance(allianceIDs)
+	entities, err := a.resolveIDs(entityIDs)
 	if err != nil {
 		return nil, err
 	}
-	allianceLookup := makeLookupMap(alliances)
+	entityLookup := makeLookupMap(entities)
 	t := makeSortedTable(
 		a,
 		[]string{"ID", "Name", "Ticker", "Members", "AllianceID", "AllianceName", "NPC"},
 		corporations,
 		func(o EveCorporation) []any {
-			return []any{o.ID(), o.Name, o.Ticker, o.MemberCount, idOrEmpty(o.AllianceID), allianceLookup[o.AllianceID].Name, o.IsNPC()}
+			return []any{o.ID(), o.Name, o.Ticker, o.MemberCount, idOrEmpty(o.AllianceID), entityLookup[o.AllianceID].Name, o.IsNPC()}
 		})
 	return t, err
 }
@@ -640,26 +623,26 @@ func (a App) buildFactionTable(ids []int32) (*tablewriter.Table, error) {
 	if err != nil {
 		return nil, err
 	}
-	var corporationIDs []int32
+	var entityIDs []int32
 	for _, o := range factions {
 		if o.CorporationID != 0 {
-			corporationIDs = append(corporationIDs, o.CorporationID)
+			entityIDs = append(entityIDs, o.CorporationID)
 		}
 		if o.MilitiaCorporationID != 0 {
-			corporationIDs = append(corporationIDs, o.MilitiaCorporationID)
+			entityIDs = append(entityIDs, o.MilitiaCorporationID)
 		}
 	}
-	corporations, err := a.fetchCorporations(corporationIDs)
+	entities, err := a.resolveIDs(entityIDs)
 	if err != nil {
 		return nil, err
 	}
-	corporationLookup := makeLookupMap(corporations)
+	entityLookup := makeLookupMap(entities)
 	t := makeSortedTable(
 		a,
 		[]string{"ID", "Name", "CorporationID", "CorporationName", "MilitiaCorporationID", "MilitiaCorporationName"},
 		factions,
 		func(o EveFaction) []any {
-			return []any{o.ID(), o.Name, idOrEmpty(o.CorporationID), corporationLookup[o.CorporationID].Name, idOrEmpty(o.MilitiaCorporationID), corporationLookup[o.MilitiaCorporationID].Name}
+			return []any{o.ID(), o.Name, idOrEmpty(o.CorporationID), entityLookup[o.CorporationID].Name, idOrEmpty(o.MilitiaCorporationID), entityLookup[o.MilitiaCorporationID].Name}
 		})
 	return t, nil
 }
@@ -707,51 +690,25 @@ func (a App) buildStationTable(ids []int32) (*tablewriter.Table, error) {
 	if err != nil {
 		return nil, err
 	}
-	var ownerIDs, solarSystemIDs, typedIDs []int32
+	var entityIDs []int32
 	for _, et := range stations {
-		ownerIDs = append(typedIDs, et.OwnerID)
-		solarSystemIDs = append(typedIDs, et.SolarSystemID)
-		typedIDs = append(typedIDs, et.TypeID)
+		entityIDs = append(entityIDs, et.OwnerID)
+		entityIDs = append(entityIDs, et.SolarSystemID)
+		entityIDs = append(entityIDs, et.TypeID)
 	}
-	var ownerLookup map[int32]EveCorporation
-	var solarSystemLookup map[int32]EveSolarSystem
-	var typeLookup map[int32]EveType
-	g := new(errgroup.Group)
-	g.Go(func() error {
-		oo, err := a.fetchCorporations(ownerIDs)
-		if err != nil {
-			return err
-		}
-		ownerLookup = makeLookupMap(oo)
-		return nil
-	})
-	g.Go(func() error {
-		oo, err := a.fetchSolarSystems(solarSystemIDs)
-		if err != nil {
-			return err
-		}
-		solarSystemLookup = makeLookupMap(oo)
-		return nil
-	})
-	g.Go(func() error {
-		oo, err := a.fetchTypes(typedIDs)
-		if err != nil {
-			return err
-		}
-		typeLookup = makeLookupMap(oo)
-		return nil
-	})
-	if err := g.Wait(); err != nil {
+	entities, err := a.resolveIDs(entityIDs)
+	if err != nil {
 		return nil, err
 	}
+	entityLookup := makeLookupMap(entities)
 	t := makeSortedTable(
 		a,
 		[]string{"ID", "Name", "SolarSystemID", "SolarSystemName", "TypeID", "TypeName", "OwnerID", "OwnerName"},
 		stations,
 		func(o EveStation) []any {
-			typeName := typeLookup[o.TypeID].Name
-			ownerName := ownerLookup[o.OwnerID].Name
-			solarSystemName := solarSystemLookup[o.SolarSystemID].Name
+			typeName := entityLookup[o.TypeID].Name
+			ownerName := entityLookup[o.OwnerID].Name
+			solarSystemName := entityLookup[o.SolarSystemID].Name
 			return []any{o.StationID, o.Name, o.SolarSystemID, solarSystemName, o.TypeID, typeName, o.OwnerID, ownerName}
 		})
 	return t, nil
