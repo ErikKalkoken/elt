@@ -31,14 +31,21 @@ var ErrNotFound = errors.New("not found")
 var Version = "0.2.1"
 
 func main() {
-	err := run(os.Args, os.Stdin, os.Stdout)
-	if err != nil {
+	exitWithError := func(err error) {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 		os.Exit(1)
 	}
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		exitWithError(err)
+	}
+	dbFilePath := appName + "/cache.db"
+	if err := run(os.Args, os.Stdin, os.Stdout, width, dbFilePath); err != nil {
+		exitWithError(err)
+	}
 }
 
-func run(args []string, _ io.Reader, stdout io.Writer) error {
+func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath string) error {
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
 	clearCache := fs.BoolP("clear-cache", "c", false, "clear the local cache before the lookup")
 	logLevel := fs.StringP("log-level", "l", "info", "set the log level for the current run")
@@ -84,11 +91,11 @@ Examples:
 	}
 
 	// Setup storage
-	dbFilepath, err := xdg.CacheFile(appName + "/cache.db")
+	p, err := xdg.CacheFile(dbFilepath)
 	if err != nil {
 		return err
 	}
-	db, err := bolt.Open(dbFilepath, 0600, nil)
+	db, err := bolt.Open(p, 0600, nil)
 	if err != nil {
 		return err
 	}
@@ -104,35 +111,10 @@ Examples:
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, userAgentEmail, sourceURL)
 	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil {
-		return err
-	}
 	app := NewApp(esiClient, st, stdout, width)
 	err = app.Run(fs.Args(), *clearCache)
 	if err != nil {
 		return err
 	}
-	// cmd := &cli.Command{
-	// 	Usage:       "A command line tool for looking up Eve Online objects.",
-	// 	ArgsUsage:   "value1 [value2 value3 ...]",
-	// 	Description: description,
-	// 	Version:     Version,
-	// 	Authors:     []any{"Erik Kalkoken"},
-	// 	Flags: []cli.Flag{
-	// 		&cli.StringFlag{
-	// 			Name:    "log-level",
-	// 			Aliases: []string{"l"},
-	// 			Value:   "info",
-	// 			Usage:   "log level for this sessions",
-	// 		},
-	// 		&cli.BoolFlag{
-	// 			Name:  "clear-cache",
-	// 			Usage: "Clears the local cache before the lookup",
-	// 		},
-	// 	},
-	// 	Action: app.Run,
-	// }
-
 	return nil
 }
