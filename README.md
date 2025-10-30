@@ -4,6 +4,7 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/ErikKalkoken/elt)](https://github.com/ErikKalkoken/elt/elt)
 [![build status](https://github.com/ErikKalkoken/elt/actions/workflows/go.yml/badge.svg)](https://github.com/ErikKalkoken/elt/actions/workflows/go.yml)
+[![codecov](https://codecov.io/gh/ErikKalkoken/elt/graph/badge.svg?token=vEFFr2HDZ9)](https://codecov.io/gh/ErikKalkoken/elt)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ErikKalkoken/elt)](https://goreportcard.com/report/github.com/ErikKalkoken/elt)
 [![GitHub License](https://img.shields.io/github/license/ErikKalkoken/elt)](https://github.com/ErikKalkoken/elt?tab=MIT-1-ov-file#readme)
 
