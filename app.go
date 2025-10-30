@@ -31,8 +31,11 @@ type result struct {
 }
 
 type App struct {
-	Width  int
-	NoWrap bool
+	// Whether to show the spinner
+	SpinnerDisabled bool
+
+	// Max width of the terminal in characters.
+	MaxWidth int
 
 	esiClient *goesi.APIClient
 	out       io.Writer
@@ -49,14 +52,7 @@ func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
 }
 
 // Run is the main entry point.
-func (a App) Run(args []string, clearCache bool) error {
-	if clearCache {
-		n, err := a.st.Clear()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(a.out, "%d objects deleted\n", n)
-	}
+func (a App) Run(args []string) error {
 	// Parse args
 	var (
 		ids     []int32
@@ -82,7 +78,7 @@ func (a App) Run(args []string, clearCache bool) error {
 
 	// Resolve ids and names
 	var bar *progressbar.ProgressBar
-	if a.Width > 0 {
+	if !a.SpinnerDisabled {
 		bar = progressbar.NewOptions(-1,
 			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
 			progressbar.OptionSetDescription("Processing..."),
@@ -356,37 +352,6 @@ func (a App) resolveIDsFromAPI2(ids []int32) ([]EveEntity, error) {
 }
 
 func (a App) resolveNames(names []string) ([]EveEntity, error) {
-	oo1, missing, err := a.resolveNamesFromStorage(names)
-	if err != nil {
-		return nil, err
-	}
-	oo2, err := a.resolveNamesFromAPI(missing)
-	if err != nil {
-		return nil, err
-	}
-	oo := slices.Concat(oo1, oo2)
-	return oo, nil
-}
-
-func (a App) resolveNamesFromStorage(names []string) ([]EveEntity, []string, error) {
-	entities, err := a.st.ListFreshEveEntitiesByName(sliceUnique(names))
-	if err != nil {
-		return nil, nil, err
-	}
-	found := make(map[string]bool)
-	for _, ee := range entities {
-		found[ee.Name] = true
-	}
-	missing := make([]string, 0)
-	for _, n := range names {
-		if !found[n] {
-			missing = append(missing, n)
-		}
-	}
-	return entities, missing, nil
-}
-
-func (a App) resolveNamesFromAPI(names []string) ([]EveEntity, error) {
 	if len(names) == 0 {
 		return []EveEntity{}, nil
 	}
@@ -493,7 +458,7 @@ func (a App) buildCharacterTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchCharacters(ids []int32) ([]EveCharacter, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveCharacterByID,
 		func(id int32) (esi.GetCharactersCharacterIdOk, *http.Response, error) {
@@ -506,13 +471,6 @@ func (a App) fetchCharacters(ids []int32) ([]EveCharacter, error) {
 				CorporationID: x.CorporationId,
 				Name:          x.Name,
 				Timestamp:     now(),
-			}
-		},
-		func(id int32) EveCharacter {
-			return EveCharacter{
-				CharacterID: id,
-				Name:        nameInvalid,
-				Timestamp:   now(),
 			}
 		},
 		a.st.UpdateOrCreateEveCharacter,
@@ -547,7 +505,7 @@ func (a App) buildCorporationTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchCorporations(ids []int32) ([]EveCorporation, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveCorporationByID,
 		func(id int32) (esi.GetCorporationsCorporationIdOk, *http.Response, error) {
@@ -561,13 +519,6 @@ func (a App) fetchCorporations(ids []int32) ([]EveCorporation, error) {
 				MemberCount:   x.MemberCount,
 				Name:          x.Name,
 				Ticker:        x.Ticker,
-				Timestamp:     now(),
-			}
-		},
-		func(id int32) EveCorporation {
-			return EveCorporation{
-				CorporationID: id,
-				Name:          nameInvalid,
 				Timestamp:     now(),
 			}
 		},
@@ -592,7 +543,7 @@ func (a App) buildAllianceTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchAlliance(ids []int32) ([]EveAlliance, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveAllianceByID,
 		func(id int32) (esi.GetAlliancesAllianceIdOk, *http.Response, error) {
@@ -603,13 +554,6 @@ func (a App) fetchAlliance(ids []int32) ([]EveAlliance, error) {
 				AllianceID: id,
 				Name:       x.Name,
 				Ticker:     x.Ticker,
-				Timestamp:  now(),
-			}
-		},
-		func(id int32) EveAlliance {
-			return EveAlliance{
-				AllianceID: id,
-				Name:       nameInvalid,
 				Timestamp:  now(),
 			}
 		},
@@ -648,7 +592,7 @@ func (a App) buildFactionTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchFactions(ids []int32) ([]EveFaction, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveFactionByID,
 		func(id int32) ([]esi.GetUniverseFactions200Ok, *http.Response, error) {
@@ -667,13 +611,6 @@ func (a App) fetchFactions(ids []int32) ([]EveFaction, error) {
 					Timestamp:            now(),
 				}
 			}
-			return EveFaction{
-				FactionID: id,
-				Name:      nameInvalid,
-				Timestamp: now(),
-			}
-		},
-		func(id int32) EveFaction {
 			return EveFaction{
 				FactionID: id,
 				Name:      nameInvalid,
@@ -715,7 +652,7 @@ func (a App) buildStationTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchStations(ids []int32) ([]EveStation, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveStationByID,
 		func(id int32) (esi.GetUniverseStationsStationIdOk, *http.Response, error) {
@@ -729,13 +666,6 @@ func (a App) fetchStations(ids []int32) ([]EveStation, error) {
 				StationID:     id,
 				Timestamp:     now(),
 				TypeID:        x.TypeId,
-			}
-		},
-		func(id int32) EveStation {
-			return EveStation{
-				StationID: id,
-				Name:      nameInvalid,
-				Timestamp: now(),
 			}
 		},
 		a.st.UpdateOrCreateEveStation,
@@ -779,7 +709,7 @@ func (a App) buildTypeTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchTypes(ids []int32) ([]EveType, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveTypeByID,
 		func(id int32) (esi.GetUniverseTypesTypeIdOk, *http.Response, error) {
@@ -794,20 +724,13 @@ func (a App) fetchTypes(ids []int32) ([]EveType, error) {
 				Timestamp: now(),
 			}
 		},
-		func(id int32) EveType {
-			return EveType{
-				TypeID:    id,
-				Name:      nameInvalid,
-				Timestamp: now(),
-			}
-		},
 		a.st.UpdateOrCreateEveType,
 	)
 	return oo, err
 }
 
 func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveCategoryByID,
 		func(id int32) (esi.GetUniverseCategoriesCategoryIdOk, *http.Response, error) {
@@ -821,20 +744,13 @@ func (a App) fetchCategories(ids []int32) ([]EveCategory, error) {
 				Timestamp:  now(),
 			}
 		},
-		func(id int32) EveCategory {
-			return EveCategory{
-				CategoryID: id,
-				Name:       nameInvalid,
-				Timestamp:  now(),
-			}
-		},
 		a.st.UpdateOrCreateEveCategory,
 	)
 	return oo, err
 }
 
 func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveGroupByID,
 		func(id int32) (esi.GetUniverseGroupsGroupIdOk, *http.Response, error) {
@@ -847,13 +763,6 @@ func (a App) fetchGroups(ids []int32) ([]EveGroup, error) {
 				Name:       x.Name,
 				Published:  x.Published,
 				Timestamp:  now(),
-			}
-		},
-		func(id int32) EveGroup {
-			return EveGroup{
-				GroupID:   id,
-				Name:      nameInvalid,
-				Timestamp: now(),
 			}
 		},
 		a.st.UpdateOrCreateEveGroup,
@@ -897,7 +806,7 @@ func (a App) buildSolarSystemTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchSolarSystems(ids []int32) ([]EveSolarSystem, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveSolarSystemByID,
 		func(id int32) (esi.GetUniverseSystemsSystemIdOk, *http.Response, error) {
@@ -910,13 +819,6 @@ func (a App) fetchSolarSystems(ids []int32) ([]EveSolarSystem, error) {
 				Security:        x.SecurityStatus,
 				SolarSystemID:   id,
 				Timestamp:       now(),
-			}
-		},
-		func(id int32) EveSolarSystem {
-			return EveSolarSystem{
-				SolarSystemID: id,
-				Name:          nameInvalid,
-				Timestamp:     now(),
 			}
 		},
 		a.st.UpdateOrCreateEveSolarSystem,
@@ -949,7 +851,7 @@ func (a App) buildConstellationTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchConstellations(ids []int32) ([]EveConstellation, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveConstellationByID,
 		func(id int32) (esi.GetUniverseConstellationsConstellationIdOk, *http.Response, error) {
@@ -960,13 +862,6 @@ func (a App) fetchConstellations(ids []int32) ([]EveConstellation, error) {
 				ConstellationID: id,
 				RegionID:        x.RegionId,
 				Name:            x.Name,
-				Timestamp:       now(),
-			}
-		},
-		func(id int32) EveConstellation {
-			return EveConstellation{
-				ConstellationID: id,
-				Name:            nameInvalid,
 				Timestamp:       now(),
 			}
 		},
@@ -992,7 +887,7 @@ func (a App) buildRegionTable(ids []int32) (*tablewriter.Table, error) {
 }
 
 func (a App) fetchRegions(ids []int32) ([]EveRegion, error) {
-	oo, err := fetchObjects(
+	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveRegionByID,
 		func(id int32) (esi.GetUniverseRegionsRegionIdOk, *http.Response, error) {
@@ -1002,13 +897,6 @@ func (a App) fetchRegions(ids []int32) ([]EveRegion, error) {
 			return EveRegion{
 				RegionID:  id,
 				Name:      x.Name,
-				Timestamp: now(),
-			}
-		},
-		func(id int32) EveRegion {
-			return EveRegion{
-				RegionID:  id,
-				Name:      nameInvalid,
 				Timestamp: now(),
 			}
 		},
@@ -1040,19 +928,27 @@ func makeLookupMap[T EveObject](objs []T) map[int32]T {
 	return m
 }
 
-func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) ([]Y, []int32, error), fetcherAPI func(id int32) (X, *http.Response, error), mapper func(id int32, x X) Y, invalid func(id int32) Y, storer func([]Y) error) ([]Y, error) {
+// fetchObjects fetches and returns eve objects for the given ids.
+// It returns objects from storage when found or otherwise fetches them from the API.
+// It also returns a slice of invalid IDs for objects which could not be found.
+func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) ([]Y, []int32, error), fetcherAPI func(id int32) (X, *http.Response, error), mapper func(id int32, x X) Y, storer func([]Y) error) ([]Y, []int32, error) {
+	wrapErr := func(err error) error {
+		var z Y
+		return fmt.Errorf("fetch objects %T: %v: %w", z, ids, err)
+	}
 	objsLocal, missing, err := fetcherStorage(sliceUnique(ids))
 	if err != nil {
-		return nil, err
+		return nil, nil, wrapErr(err)
 	}
 	objsRemote := make([]Y, len(missing))
+	invalidIDs := make([]int32, len(missing))
 	g := new(errgroup.Group)
 	for i, id := range missing {
 		g.Go(func() error {
 			x, r, err := fetcherAPI(id)
 			if err != nil {
 				if r != nil && r.StatusCode == http.StatusNotFound {
-					objsRemote[i] = invalid(id)
+					invalidIDs[i] = id
 					return nil
 				}
 				return err
@@ -1062,16 +958,19 @@ func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) 
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return nil, nil, wrapErr(err)
 	}
 	if len(objsRemote) > 0 {
 		err := storer(objsRemote)
 		if err != nil {
-			return nil, err
+			return nil, nil, wrapErr(err)
 		}
 	}
+	invalid2 := slices.DeleteFunc(invalidIDs, func(x int32) bool {
+		return x == 0
+	})
 	objs := slices.Concat(objsLocal, objsRemote)
-	return objs, nil
+	return objs, invalid2, nil
 }
 
 func makeSortedTable[T EveObject](a App, headers []string, objs []T, makeRow func(T) []any) *tablewriter.Table {
@@ -1087,7 +986,7 @@ func makeSortedTable[T EveObject](a App, headers []string, objs []T, makeRow fun
 			Settings: tw.Settings{Separators: tw.Separators{BetweenRows: tw.On}},
 		})),
 		tablewriter.WithConfig(tablewriter.Config{
-			MaxWidth: a.Width,
+			MaxWidth: a.MaxWidth,
 			Row: tw.CellConfig{
 				Formatting: tw.CellFormatting{AutoWrap: tw.WrapNormal},
 				Alignment:  tw.CellAlignment{Global: tw.AlignLeft}, // Left-align rows

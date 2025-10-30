@@ -624,7 +624,8 @@ func TestApp(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer
 			a := NewApp(esiClient, st, &buf)
-			err := a.Run([]string{fmt.Sprint(o.ID)}, false)
+			a.SpinnerDisabled = true
+			err := a.Run([]string{fmt.Sprint(o.ID)})
 			if !assert.NoError(t, err) {
 				t.Fatal(err)
 			}
@@ -641,7 +642,8 @@ func TestApp(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer
 			a := NewApp(esiClient, st, &buf)
-			err := a.Run([]string{o.Name}, false)
+			a.SpinnerDisabled = true
+			err := a.Run([]string{o.Name})
 			if !assert.NoError(t, err) {
 				t.Fatal(err)
 			}

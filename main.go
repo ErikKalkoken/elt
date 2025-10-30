@@ -28,7 +28,7 @@ const (
 var ErrNotFound = errors.New("not found")
 
 // Version is overwritten in the CI release process.
-var Version = "0.2.1"
+var Version = "0.3.0"
 
 func main() {
 	exitWithError := func(err error) {
@@ -48,8 +48,8 @@ func main() {
 func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath string) error {
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
 	clearCache := fs.BoolP("clear-cache", "c", false, "clear the local cache before the lookup")
-	logLevel := fs.StringP("log-level", "l", "info", "set the log level for the current run")
-	width2 := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
+	logLevel := fs.StringP("log-level", "l", "warn", "set the log level for the current run")
+	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
 	showVersion := fs.BoolP("version", "v", false, "print the version")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
@@ -112,9 +112,18 @@ Examples:
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, userAgentEmail, sourceURL)
 	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	app := NewApp(esiClient, st, stdout)
-	app.Width = *width2
-	err = app.Run(fs.Args(), *clearCache)
+	a := NewApp(esiClient, st, stdout)
+	a.MaxWidth = *maxWidth
+
+	if *clearCache {
+		n, err := a.st.Clear()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "cache cleared (%d objects)\n", n)
+	}
+
+	err = a.Run(fs.Args())
 	if err != nil {
 		return err
 	}
