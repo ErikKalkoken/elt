@@ -106,6 +106,7 @@ func TestStorageEveEntites(t *testing.T) {
 	})
 }
 
+// TestStorageEveTypes represents the tests for all generated methods.
 func TestStorageEveTypes(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "elt.db")
 	db, err := bolt.Open(p, 0600, nil)
@@ -138,20 +139,38 @@ func TestStorageEveTypes(t *testing.T) {
 		}
 		return o
 	}
-	t.Run("can list objs", func(t *testing.T) {
+	t.Run("can create new objects", func(t *testing.T) {
 		st.MustClear()
-		o1 := createEveType()
-		o2 := createEveType()
+		o1 := EveType{TypeID: 7, Name: "Dummy"}
+		err := st.UpdateOrCreateEveType([]EveType{o1})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
 		oo, err := st.ListEveType()
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		got := make([]int32, 0)
-		for _, x := range oo {
-			got = append(got, x.TypeID)
+		assert.Len(t, oo, 1)
+		o2 := oo[0]
+		assert.Equal(t, o1.TypeID, o2.TypeID)
+		assert.Equal(t, o1.Name, o2.Name)
+	})
+	t.Run("can update existing objects", func(t *testing.T) {
+		st.MustClear()
+		o1 := createEveType(EveType{TypeID: 7, Name: "Dummy"})
+		o1.Name = "Bravo"
+		err := st.UpdateOrCreateEveType([]EveType{o1})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
 		}
-		want := []int32{o1.ID(), o2.ID()}
-		assert.ElementsMatch(t, want, got)
+		oo, err := st.ListEveType()
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		assert.Len(t, oo, 1)
+		o2 := oo[0]
+		assert.Equal(t, o1.TypeID, o2.TypeID)
+		assert.Equal(t, "Bravo", o2.Name)
 	})
 	t.Run("can list objs by ID", func(t *testing.T) {
 		st.MustClear()

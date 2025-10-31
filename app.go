@@ -65,7 +65,7 @@ func (a App) Run(args []string) error {
 			names = append(names, arg)
 		} else {
 			id32 := int32(id)
-			if int(id32) != id {
+			if int(id32) != id || id == 0 {
 				invalid = append(invalid, id)
 				continue
 			}
@@ -76,12 +76,17 @@ func (a App) Run(args []string) error {
 		fmt.Fprintf(a.out, "Ignoring invalid IDs: %v\n", invalid)
 	}
 
+	count := len(ids) + len(names)
+	if count == 0 {
+		return fmt.Errorf("no suitable input to process")
+	}
+
 	// Resolve ids and names
 	var bar *progressbar.ProgressBar
 	if !a.SpinnerDisabled {
 		bar = progressbar.NewOptions(-1,
 			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
-			progressbar.OptionSetDescription("Processing..."),
+			progressbar.OptionSetDescription(fmt.Sprintf("Resolving %d IDs/names ...", count)),
 			progressbar.OptionSetRenderBlankState(true),
 			progressbar.OptionSetWriter(a.out),
 		)
@@ -129,6 +134,206 @@ func (a App) Run(args []string) error {
 		r.table.Render()
 	}
 	return nil
+}
+
+func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
+	entities1, unknownIDs, err := a.st.ListFreshEveEntityByID(ids)
+	if err != nil {
+		return nil, err
+	}
+	entities2, err := resolveIDsFromAPI(a.esiClient, unknownIDs)
+	if err != nil {
+		return nil, err
+	}
+	entities3 := slices.DeleteFunc(slices.Clone(entities2), func(o EveEntity) bool {
+		return o.ID() == 0
+	})
+	if err := a.st.UpdateOrCreateEveEntity(entities3); err != nil {
+		return nil, err
+	}
+	m := make(map[int32]EveEntity)
+	for _, e := range slices.Concat(entities1, entities2) {
+		m[e.EntityID] = e
+	}
+	entities := make([]EveEntity, 0)
+	for _, id := range ids {
+		entities = append(entities, m[id])
+	}
+	return entities, nil
+}
+
+func resolveIDsFromAPI(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, error) {
+	ids2 := sliceUnique(ids)
+	entities := make([]EveEntity, 0)
+	for idsChunk := range slices.Chunk(ids2, 1000) {
+		oo, err := resolveIDsFromAPI2(esiClient, idsChunk)
+		if err != nil {
+			return nil, err
+		}
+		entities = slices.Concat(entities, oo)
+	}
+	return entities, nil
+}
+
+func resolveIDsFromAPI2(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, error) {
+	if len(ids) == 0 {
+		return []EveEntity{}, nil
+	}
+	entities, err := resolveIDsFromAPI3(esiClient, ids)
+	if errors.Is(err, ErrNotFound) {
+		n := len(ids)
+		if n == 1 {
+			return []EveEntity{{
+				EntityID:  ids[0],
+				Name:      "",
+				Category:  CategoryInvalid,
+				Timestamp: now(),
+			}}, nil
+		}
+		var it1, it2 []EveEntity
+		g := new(errgroup.Group)
+		g.Go(func() error {
+			entities, err := resolveIDsFromAPI2(esiClient, ids[:n/2])
+			if err != nil {
+				return err
+			}
+			it1 = entities
+			return nil
+		})
+		g.Go(func() error {
+			entities, err := resolveIDsFromAPI2(esiClient, ids[n/2:])
+			if err != nil {
+				return err
+			}
+			it2 = entities
+			return nil
+		})
+		if err := g.Wait(); err != nil {
+			return nil, err
+		}
+		entities = slices.Concat(it1, it2)
+		return entities, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
+func resolveIDsFromAPI3(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, error) {
+	data, r, err := esiClient.ESI.UniverseApi.PostUniverseNames(context.Background(), ids, nil)
+	if err != nil {
+		if r != nil && r.StatusCode == http.StatusNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	eveEntityCategoryFromESICategory := func(c string) EveEntityCategory {
+		categoryMap := map[string]EveEntityCategory{
+			"alliance":       CategoryAlliance,
+			"character":      CategoryCharacter,
+			"corporation":    CategoryCorporation,
+			"constellation":  CategoryConstellation,
+			"faction":        CategoryFaction,
+			"inventory_type": CategoryInventoryType,
+			"region":         CategoryRegion,
+			"solar_system":   CategorySolarSystem,
+			"station":        CategoryStation,
+		}
+		c2, ok := categoryMap[c]
+		if !ok {
+			return CategoryUnknown
+		}
+		return c2
+	}
+	entities := make([]EveEntity, 0)
+	for _, o := range data {
+		entities = append(entities, EveEntity{
+			EntityID:  o.Id,
+			Name:      o.Name,
+			Category:  eveEntityCategoryFromESICategory(o.Category),
+			Timestamp: now(),
+		})
+	}
+	return entities, nil
+}
+
+func (a App) resolveNames(names []string) ([]EveEntity, error) {
+	if len(names) == 0 {
+		return []EveEntity{}, nil
+	}
+	data, r, err := a.esiClient.ESI.UniverseApi.PostUniverseIds(context.Background(), names, nil)
+	if err != nil {
+		return nil, err
+	}
+	if r.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned error: %s", r.Status)
+	}
+	matches := make(map[string]bool)
+	for _, n := range names {
+		matches[n] = true
+	}
+	found := make(map[string]bool)
+	entities := make([]EveEntity, 0)
+	addEntity := func(id int32, name string, category EveEntityCategory) {
+		if !matches[name] {
+			return
+		}
+		entities = append(entities, EveEntity{
+			EntityID:  id,
+			Name:      name,
+			Category:  category,
+			Timestamp: now(),
+		})
+		found[name] = true
+	}
+	for _, o := range data.Agents {
+		addEntity(o.Id, o.Name, CategoryAgent)
+	}
+	for _, o := range data.Alliances {
+		addEntity(o.Id, o.Name, CategoryAlliance)
+	}
+	for _, o := range data.Characters {
+		addEntity(o.Id, o.Name, CategoryCharacter)
+	}
+	for _, o := range data.Constellations {
+		addEntity(o.Id, o.Name, CategoryConstellation)
+	}
+	for _, o := range data.Corporations {
+		addEntity(o.Id, o.Name, CategoryCorporation)
+	}
+	for _, o := range data.Factions {
+		addEntity(o.Id, o.Name, CategoryFaction)
+	}
+	for _, o := range data.InventoryTypes {
+		addEntity(o.Id, o.Name, CategoryInventoryType)
+	}
+	for _, o := range data.Regions {
+		addEntity(o.Id, o.Name, CategoryRegion)
+	}
+	for _, o := range data.Stations {
+		addEntity(o.Id, o.Name, CategoryStation)
+	}
+	for _, o := range data.Systems {
+		addEntity(o.Id, o.Name, CategorySolarSystem)
+	}
+	for _, n := range names {
+		if found[n] {
+			continue
+		}
+		entities = append(entities, EveEntity{
+			Name:      n,
+			Category:  CategoryInvalid,
+			Timestamp: now(),
+		})
+	}
+	entities2 := slices.DeleteFunc(slices.Clone(entities), func(o EveEntity) bool {
+		return o.ID() == 0
+	})
+	if err := a.st.UpdateOrCreateEveEntity(entities2); err != nil {
+		return nil, err
+	}
+	return entities, nil
 }
 
 func (a App) buildResults(entities []EveEntity) ([]result, error) {
@@ -243,190 +448,6 @@ func (a App) buildResults(entities []EveEntity) ([]result, error) {
 		results2 = append(results2, r)
 	}
 	return results2, nil
-}
-
-func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
-	entities1, unknownIDs, err := a.st.ListFreshEveEntityByID(ids)
-	if err != nil {
-		return nil, err
-	}
-	entities2, err := a.resolveIDsFromAPI(unknownIDs)
-	if err != nil {
-		return nil, err
-	}
-	if err := a.st.UpdateOrCreateEveEntity(entities2); err != nil {
-		return nil, err
-	}
-	m := make(map[int32]EveEntity)
-	for _, e := range slices.Concat(entities1, entities2) {
-		m[e.EntityID] = e
-	}
-	entities := make([]EveEntity, 0)
-	for _, id := range ids {
-		entities = append(entities, m[id])
-	}
-	return entities, nil
-}
-
-func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
-	if len(ids) == 0 {
-		return []EveEntity{}, nil
-	}
-	entities, err := a.resolveIDsFromAPI2(ids)
-	if errors.Is(err, ErrNotFound) {
-		n := len(ids)
-		if n == 1 {
-			return []EveEntity{{
-				EntityID:  ids[0],
-				Name:      "",
-				Category:  CategoryInvalid,
-				Timestamp: now(),
-			}}, nil
-		}
-		var it1, it2 []EveEntity
-		g := new(errgroup.Group)
-		g.Go(func() error {
-			entities, err := a.resolveIDsFromAPI(ids[:n/2])
-			if err != nil {
-				return err
-			}
-			it1 = entities
-			return nil
-		})
-		g.Go(func() error {
-			entities, err := a.resolveIDsFromAPI(ids[n/2:])
-			if err != nil {
-				return err
-			}
-			it2 = entities
-			return nil
-		})
-		if err := g.Wait(); err != nil {
-			return nil, err
-		}
-		entities = slices.Concat(it1, it2)
-		return entities, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return entities, nil
-}
-
-func (a App) resolveIDsFromAPI2(ids []int32) ([]EveEntity, error) {
-	data, r, err := a.esiClient.ESI.UniverseApi.PostUniverseNames(context.Background(), ids, nil)
-	if err != nil {
-		if r != nil && r.StatusCode == http.StatusNotFound {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	eveEntityCategoryFromESICategory := func(c string) EveEntityCategory {
-		categoryMap := map[string]EveEntityCategory{
-			"alliance":       CategoryAlliance,
-			"character":      CategoryCharacter,
-			"corporation":    CategoryCorporation,
-			"constellation":  CategoryConstellation,
-			"faction":        CategoryFaction,
-			"inventory_type": CategoryInventoryType,
-			"region":         CategoryRegion,
-			"solar_system":   CategorySolarSystem,
-			"station":        CategoryStation,
-		}
-		c2, ok := categoryMap[c]
-		if !ok {
-			return CategoryUnknown
-		}
-		return c2
-	}
-	entities := make([]EveEntity, 0)
-	for _, o := range data {
-		entities = append(entities, EveEntity{
-			EntityID:  o.Id,
-			Name:      o.Name,
-			Category:  eveEntityCategoryFromESICategory(o.Category),
-			Timestamp: now(),
-		})
-	}
-	return entities, nil
-}
-
-func (a App) resolveNames(names []string) ([]EveEntity, error) {
-	if len(names) == 0 {
-		return []EveEntity{}, nil
-	}
-	data, r, err := a.esiClient.ESI.UniverseApi.PostUniverseIds(context.Background(), names, nil)
-	if err != nil {
-		return nil, err
-	}
-	if r.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned error: %s", r.Status)
-	}
-	matches := make(map[string]bool)
-	for _, n := range names {
-		matches[n] = true
-	}
-	found := make(map[string]bool)
-	entities := make([]EveEntity, 0)
-	addEntity := func(id int32, name string, category EveEntityCategory) {
-		if !matches[name] {
-			return
-		}
-		entities = append(entities, EveEntity{
-			EntityID:  id,
-			Name:      name,
-			Category:  category,
-			Timestamp: now(),
-		})
-		found[name] = true
-	}
-	for _, o := range data.Agents {
-		addEntity(o.Id, o.Name, CategoryAgent)
-	}
-	for _, o := range data.Alliances {
-		addEntity(o.Id, o.Name, CategoryAlliance)
-	}
-	for _, o := range data.Characters {
-		addEntity(o.Id, o.Name, CategoryCharacter)
-	}
-	for _, o := range data.Constellations {
-		addEntity(o.Id, o.Name, CategoryConstellation)
-	}
-	for _, o := range data.Corporations {
-		addEntity(o.Id, o.Name, CategoryCorporation)
-	}
-	for _, o := range data.Factions {
-		addEntity(o.Id, o.Name, CategoryFaction)
-	}
-	for _, o := range data.InventoryTypes {
-		addEntity(o.Id, o.Name, CategoryInventoryType)
-	}
-	for _, o := range data.Regions {
-		addEntity(o.Id, o.Name, CategoryRegion)
-	}
-	for _, o := range data.Stations {
-		addEntity(o.Id, o.Name, CategoryStation)
-	}
-	for _, o := range data.Systems {
-		addEntity(o.Id, o.Name, CategorySolarSystem)
-	}
-	for _, n := range names {
-		if found[n] {
-			continue
-		}
-		entities = append(entities, EveEntity{
-			Name:      n,
-			Category:  CategoryInvalid,
-			Timestamp: now(),
-		})
-	}
-	entities2 := slices.DeleteFunc(slices.Clone(entities), func(o EveEntity) bool {
-		return o.ID() == 0
-	})
-	if err := a.st.UpdateOrCreateEveEntity(entities2); err != nil {
-		return nil, err
-	}
-	return entities, nil
 }
 
 func (a App) buildCharacterTable(ids []int32) (*tablewriter.Table, error) {
@@ -961,7 +982,10 @@ func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) 
 		return nil, nil, wrapErr(err)
 	}
 	if len(objsRemote) > 0 {
-		err := storer(objsRemote)
+		oo := slices.DeleteFunc(objsRemote, func(x Y) bool {
+			return x.ID() == 0
+		})
+		err := storer(oo)
 		if err != nil {
 			return nil, nil, wrapErr(err)
 		}

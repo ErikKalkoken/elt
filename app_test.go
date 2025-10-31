@@ -15,12 +15,13 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-func TestApp(t *testing.T) {
-	type entity struct {
-		ID       int32  `json:"id"`
-		Name     string `json:"name"`
-		Category string `json:"category"`
-	}
+type entity struct {
+	ID       int32  `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+}
+
+func TestApp_Run(t *testing.T) {
 	// creating test cases
 	primaryEntities := []entity{
 		{10000030, "Heimatar", "region"},
@@ -38,6 +39,7 @@ func TestApp(t *testing.T) {
 	}
 	// used indirectly in test cases for id/name resolution only
 	secondaryEntities := []entity{
+		{0, "#System", "inventory_type"},
 		{1000080, "Ministry of War", "corporation"},
 		{1000023, "Expert Distribution", "corporation"},
 	}
@@ -53,23 +55,7 @@ func TestApp(t *testing.T) {
 	httpmock.RegisterResponder(
 		"POST",
 		`=~^https://esi\.evetech\.net/v\d+/universe/names/`,
-		func(req *http.Request) (*http.Response, error) {
-			var ids []int32
-			if err := json.NewDecoder(req.Body).Decode(&ids); err != nil {
-				return httpmock.NewStringResponse(400, ""), nil
-			}
-			var results []entity
-			for _, id := range ids {
-				r, found := entityLookup[id]
-				if !found {
-					return httpmock.NewJsonResponse(404, map[string]any{
-						"error": "not found",
-					})
-				}
-				results = append(results, r)
-			}
-			return httpmock.NewJsonResponse(200, results)
-		},
+		makeUniverseNamesEndpoint(entities),
 	)
 
 	httpmock.RegisterResponder(
@@ -699,4 +685,113 @@ func TestApp(t *testing.T) {
 		assert.Contains(t, got, "xyz")
 		assert.Contains(t, got, "INVALID")
 	})
+
+	t.Run("should ignore ID 0", func(t *testing.T) {
+		st.Clear()
+		var buf bytes.Buffer
+		a := NewApp(esiClient, st, &buf)
+		a.SpinnerDisabled = true
+		err := a.Run([]string{fmt.Sprint(0), fmt.Sprint(93330670)})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := buf.String()
+		assert.Contains(t, got, fmt.Sprint(93330670))
+		assert.Contains(t, got, "Erik Kalkoken")
+	})
+}
+
+func TestApp_resolveIDsFromAPI(t *testing.T) {
+	entities := []entity{
+		{10000030, "Heimatar", "region"},
+		{1000035, "Caldari Navy", "corporation"},
+		{1000180, "State Protectorate", "corporation"},
+	}
+	var generatedIDs []int32
+	for n := range 1010 {
+		id := int32(300_001 + n)
+		generatedIDs = append(generatedIDs, id)
+		entities = append(entities, entity{id, fmt.Sprintf("Generated #%d", id), string(CategorySolarSystem)})
+	}
+
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+	httpmock.RegisterResponder(
+		"POST",
+		`=~^https://esi\.evetech\.net/v\d+/universe/names/`,
+		makeUniverseNamesEndpoint(entities),
+	)
+	client := goesi.NewAPIClient(nil, "")
+	t.Run("can resolve IDs", func(t *testing.T) {
+		oo, err := resolveIDsFromAPI(client, []int32{10000030, 1000035})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := extractIDs(oo)
+		want := []int32{10000030, 1000035}
+		assert.ElementsMatch(t, want, got)
+	})
+	t.Run("should resolve all IDs including invalid", func(t *testing.T) {
+		oo, err := resolveIDsFromAPI(client, []int32{10000030, 1000035, 666})
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := extractIDs(oo)
+		want := []int32{10000030, 1000035, 666}
+		assert.ElementsMatch(t, want, got)
+		var invalid EveEntity
+		for _, o := range oo {
+			if o.ID() == 666 {
+				invalid = o
+				break
+			}
+		}
+		assert.NotZero(t, invalid.ID())
+		assert.Equal(t, CategoryInvalid, invalid.Category)
+	})
+	t.Run("can resolve 1000+ IDs", func(t *testing.T) {
+		oo, err := resolveIDsFromAPI(client, generatedIDs)
+		if !assert.NoError(t, err) {
+			t.Fatal(err)
+		}
+		got := extractIDs(oo)
+		want := generatedIDs
+		assert.ElementsMatch(t, want, got)
+	})
+}
+
+// makeUniverseNamesEndpoint creates a stub for the universe names endpoint.
+func makeUniverseNamesEndpoint(entities []entity) func(req *http.Request) (*http.Response, error) {
+	entityLookup := make(map[int32]entity)
+	for _, o := range entities {
+		entityLookup[o.ID] = o
+	}
+	return func(req *http.Request) (*http.Response, error) {
+		var ids []int32
+		if err := json.NewDecoder(req.Body).Decode(&ids); err != nil {
+			return httpmock.NewStringResponse(400, ""), nil
+		}
+		var results []entity
+		for _, id := range ids {
+			r, found := entityLookup[id]
+			if !found {
+				return httpmock.NewJsonResponse(404, map[string]any{
+					"error": "not found",
+				})
+			}
+			results = append(results, r)
+			if len(results) == 1000 {
+				break
+			}
+		}
+		return httpmock.NewJsonResponse(200, results)
+	}
+}
+
+func extractIDs[T EveObject](oo []T) []int32 {
+	var got []int32
+	for _, o := range oo {
+		got = append(got, o.ID())
+	}
+	return got
 }

@@ -37,7 +37,8 @@ func main() {
 	}
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
-		exitWithError(err)
+		fmt.Fprintln(os.Stderr, err.Error())
+		width = 0
 	}
 	dbFilePath := appName + "/cache.db"
 	if err := run(os.Args, os.Stdin, os.Stdout, width, dbFilePath); err != nil {
@@ -48,6 +49,7 @@ func main() {
 func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath string) error {
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
 	clearCache := fs.BoolP("clear-cache", "c", false, "clear the local cache before the lookup")
+	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
 	logLevel := fs.StringP("log-level", "l", "warn", "set the log level for the current run")
 	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
 	showVersion := fs.BoolP("version", "v", false, "print the version")
@@ -114,6 +116,7 @@ Examples:
 
 	a := NewApp(esiClient, st, stdout)
 	a.MaxWidth = *maxWidth
+	a.SpinnerDisabled = *noSpinner
 
 	if *clearCache {
 		n, err := a.st.Clear()
