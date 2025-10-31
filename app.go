@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
@@ -92,14 +93,14 @@ func (a App) Run(args []string) error {
 		)
 	}
 	g := new(errgroup.Group)
-	var oo1, oo2 []EveEntity
+	var entities1, entities2 []EveEntity
 	if len(ids) > 0 {
 		g.Go(func() error {
 			oo, err := a.resolveIDs(ids)
 			if err != nil {
 				return err
 			}
-			oo1 = oo
+			entities1 = oo
 			return nil
 		})
 	}
@@ -109,18 +110,120 @@ func (a App) Run(args []string) error {
 			if err != nil {
 				return err
 			}
-			oo2 = oo
+			entities2 = oo
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
 		return err
 	}
-	oo := slices.Concat(oo1, oo2)
+	entities := slices.Concat(entities1, entities2)
+
+	slog.Info("resolved entities from input values", "count", len(entities))
 
 	// build results
-	results, err := a.buildResults(oo)
-	if err != nil {
+	category2IDs := make(map[EveEntityCategory][]int32)
+	for _, e := range entities {
+		category2IDs[e.Category] = append(category2IDs[e.Category], e.ID())
+	}
+	results := make([]result, len(category2IDs))
+	g2 := new(errgroup.Group)
+	for i, c := range slices.Sorted(maps.Keys(category2IDs)) {
+		g2.Go(func() error {
+			ids := category2IDs[c]
+			switch c {
+			case CategoryAgent:
+				t, err := a.buildCharacterTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryAlliance:
+				t, err := a.buildAllianceTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryCharacter:
+				t, err := a.buildCharacterTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryConstellation:
+				t, err := a.buildConstellationTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryCorporation:
+				t, err := a.buildCorporationTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryFaction:
+				t, err := a.buildFactionTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryInventoryType:
+				t, err := a.buildTypeTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryRegion:
+				t, err := a.buildRegionTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategorySolarSystem:
+				t, err := a.buildSolarSystemTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryStation:
+				t, err := a.buildStationTable(ids)
+				if err != nil {
+					return err
+				}
+				results[i] = result{c, t}
+			case CategoryInvalid:
+				entities2 := slices.DeleteFunc(entities, func(o EveEntity) bool {
+					return o.Category != CategoryInvalid
+				})
+				t := makeSortedTable(
+					a,
+					[]string{"ID", "Name", "Category"},
+					entities2, func(o EveEntity) []any {
+						return []any{o.EntityID, o.Name, o.Category.Display()}
+					},
+				)
+				results[i] = result{c, t}
+			default:
+				entities, _, err := a.st.ListFreshEveEntityByID(ids)
+				if err != nil {
+					return err
+				}
+				t := makeSortedTable(
+					a,
+					[]string{"ID", "Name", "Category"},
+					entities,
+					func(o EveEntity) []any {
+						return []any{o.EntityID, o.Name, o.Category.Display()}
+					},
+				)
+				results[i] = result{c, t}
+			}
+			slog.Info("Resolved objects", "category", c, "count", len(ids))
+			return nil
+		})
+	}
+	if err := g2.Wait(); err != nil {
 		return err
 	}
 
@@ -130,6 +233,9 @@ func (a App) Run(args []string) error {
 
 	// Print results
 	for _, r := range results {
+		if r.table == nil {
+			continue
+		}
 		fmt.Fprintln(a.out, r.category.Display()+":")
 		r.table.Render()
 	}
@@ -334,120 +440,6 @@ func (a App) resolveNames(names []string) ([]EveEntity, error) {
 		return nil, err
 	}
 	return entities, nil
-}
-
-func (a App) buildResults(entities []EveEntity) ([]result, error) {
-	category2IDs := make(map[EveEntityCategory][]int32)
-	for _, e := range entities {
-		category2IDs[e.Category] = append(category2IDs[e.Category], e.ID())
-	}
-	results := make([]result, len(category2IDs))
-	g := new(errgroup.Group)
-	for i, c := range slices.Sorted(maps.Keys(category2IDs)) {
-		g.Go(func() error {
-			ids := category2IDs[c]
-			switch c {
-			case CategoryAgent:
-				t, err := a.buildCharacterTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryAlliance:
-				t, err := a.buildAllianceTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryCharacter:
-				t, err := a.buildCharacterTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryConstellation:
-				t, err := a.buildConstellationTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryCorporation:
-				t, err := a.buildCorporationTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryFaction:
-				t, err := a.buildFactionTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryInventoryType:
-				t, err := a.buildTypeTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryRegion:
-				t, err := a.buildRegionTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategorySolarSystem:
-				t, err := a.buildSolarSystemTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryStation:
-				t, err := a.buildStationTable(ids)
-				if err != nil {
-					return err
-				}
-				results[i] = result{c, t}
-			case CategoryInvalid:
-				entities2 := slices.DeleteFunc(entities, func(o EveEntity) bool {
-					return o.Category != CategoryInvalid
-				})
-				t := makeSortedTable(
-					a,
-					[]string{"ID", "Name", "Category"},
-					entities2, func(o EveEntity) []any {
-						return []any{o.EntityID, o.Name, o.Category.Display()}
-					},
-				)
-				results[i] = result{c, t}
-			default:
-				entities, _, err := a.st.ListFreshEveEntityByID(ids)
-				if err != nil {
-					return err
-				}
-				t := makeSortedTable(
-					a,
-					[]string{"ID", "Name", "Category"},
-					entities,
-					func(o EveEntity) []any {
-						return []any{o.EntityID, o.Name, o.Category.Display()}
-					},
-				)
-				results[i] = result{c, t}
-			}
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-	var results2 []result
-	for _, r := range results {
-		if r.table == nil {
-			continue
-		}
-		results2 = append(results2, r)
-	}
-	return results2, nil
 }
 
 func (a App) buildCharacterTable(ids []int32) (*tablewriter.Table, error) {

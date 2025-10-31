@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	bolt "go.etcd.io/bbolt"
@@ -84,6 +85,7 @@ func (st *Storage) Clear() (int, error) {
 	}); err != nil {
 		return 0, err
 	}
+	slog.Info("storage cleared", "deletedCount", n)
 	return n, nil
 }
 
@@ -214,5 +216,6 @@ func updateOrCreateEveObjects[T EveObject](st *Storage, bucket string, objs []T)
 	}); err != nil {
 		return fmt.Errorf("updateOrCreateEveObjects: %T: %w", objs, err)
 	}
+	slog.Info("updateOrCreateEveObjects", "type", fmt.Sprintf("%T", objs), "count", len(objs))
 	return nil
 }
