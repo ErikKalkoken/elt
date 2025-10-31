@@ -35,7 +35,7 @@ const (
 var ErrNotFound = errors.New("not found")
 
 // Version is overwritten in the CI release process.
-var Version = "0.3.0"
+var Version = "0.4.0"
 
 func main() {
 	exitWithError := func(err error) {
