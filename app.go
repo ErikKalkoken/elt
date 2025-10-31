@@ -76,7 +76,8 @@ func (a App) Run(args []string) error {
 		fmt.Fprintf(a.out, "Ignoring invalid IDs: %v\n", invalid)
 	}
 
-	if len(ids) == 0 && len(names) == 0 {
+	count := len(ids) + len(names)
+	if count == 0 {
 		return fmt.Errorf("no suitable input to process")
 	}
 
@@ -85,7 +86,7 @@ func (a App) Run(args []string) error {
 	if !a.SpinnerDisabled {
 		bar = progressbar.NewOptions(-1,
 			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
-			progressbar.OptionSetDescription("Processing..."),
+			progressbar.OptionSetDescription(fmt.Sprintf("Resolving %d IDs/names ...", count)),
 			progressbar.OptionSetRenderBlankState(true),
 			progressbar.OptionSetWriter(a.out),
 		)
@@ -140,7 +141,7 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 	if err != nil {
 		return nil, err
 	}
-	entities2, err := a.resolveIDsFromAPI(unknownIDs)
+	entities2, err := resolveIDsFromAPI(a.esiClient, unknownIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -161,11 +162,24 @@ func (a App) resolveIDs(ids []int32) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
+func resolveIDsFromAPI(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, error) {
+	ids2 := sliceUnique(ids)
+	entities := make([]EveEntity, 0)
+	for idsChunk := range slices.Chunk(ids2, 1000) {
+		oo, err := resolveIDsFromAPI2(esiClient, idsChunk)
+		if err != nil {
+			return nil, err
+		}
+		entities = slices.Concat(entities, oo)
+	}
+	return entities, nil
+}
+
+func resolveIDsFromAPI2(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, error) {
 	if len(ids) == 0 {
 		return []EveEntity{}, nil
 	}
-	entities, err := a.resolveIDsFromAPI2(ids)
+	entities, err := resolveIDsFromAPI3(esiClient, ids)
 	if errors.Is(err, ErrNotFound) {
 		n := len(ids)
 		if n == 1 {
@@ -179,7 +193,7 @@ func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
 		var it1, it2 []EveEntity
 		g := new(errgroup.Group)
 		g.Go(func() error {
-			entities, err := a.resolveIDsFromAPI(ids[:n/2])
+			entities, err := resolveIDsFromAPI2(esiClient, ids[:n/2])
 			if err != nil {
 				return err
 			}
@@ -187,7 +201,7 @@ func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
 			return nil
 		})
 		g.Go(func() error {
-			entities, err := a.resolveIDsFromAPI(ids[n/2:])
+			entities, err := resolveIDsFromAPI2(esiClient, ids[n/2:])
 			if err != nil {
 				return err
 			}
@@ -206,8 +220,8 @@ func (a App) resolveIDsFromAPI(ids []int32) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func (a App) resolveIDsFromAPI2(ids []int32) ([]EveEntity, error) {
-	data, r, err := a.esiClient.ESI.UniverseApi.PostUniverseNames(context.Background(), ids, nil)
+func resolveIDsFromAPI3(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, error) {
+	data, r, err := esiClient.ESI.UniverseApi.PostUniverseNames(context.Background(), ids, nil)
 	if err != nil {
 		if r != nil && r.StatusCode == http.StatusNotFound {
 			return nil, ErrNotFound
@@ -968,7 +982,10 @@ func fetchObjects[X any, Y EveObject](ids []int32, fetcherStorage func([]int32) 
 		return nil, nil, wrapErr(err)
 	}
 	if len(objsRemote) > 0 {
-		err := storer(objsRemote)
+		oo := slices.DeleteFunc(objsRemote, func(x Y) bool {
+			return x.ID() == 0
+		})
+		err := storer(oo)
 		if err != nil {
 			return nil, nil, wrapErr(err)
 		}
