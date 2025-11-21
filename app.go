@@ -35,6 +35,9 @@ type App struct {
 	// Whether to show the spinner
 	SpinnerDisabled bool
 
+	// When specified limit the results to this category
+	EntityCategory EveEntityCategory
+
 	// Max width of the terminal in characters.
 	MaxWidth int
 
@@ -124,9 +127,19 @@ func (a App) Run(args []string) error {
 	// build results
 	category2IDs := make(map[EveEntityCategory][]int32)
 	for _, e := range entities {
+		if a.EntityCategory != CategoryUndefined && a.EntityCategory != e.Category {
+			continue
+		}
 		category2IDs[e.Category] = append(category2IDs[e.Category], e.ID())
 	}
 	results := make([]result, len(category2IDs))
+	if len(results) == 0 {
+		if bar != nil {
+			bar.Clear()
+		}
+		fmt.Fprintln(a.out, "Nothing found")
+	}
+
 	g2 := new(errgroup.Group)
 	for i, c := range slices.Sorted(maps.Keys(category2IDs)) {
 		g2.Go(func() error {
