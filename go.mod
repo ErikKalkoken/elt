@@ -1,10 +1,10 @@
 module github.com/ErikKalkoken/elt
 
-go 1.24.3
+go 1.25.3
 
 require (
 	github.com/adrg/xdg v0.5.3
-	github.com/antihax/goesi v0.0.0-20250326124837-837c9408dfa4
+	github.com/antihax/goesi v0.0.0-20251103030832-a87832eae7ca
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/jarcoal/httpmock v1.4.1
 	github.com/olekukonko/tablewriter v1.1.0
@@ -12,9 +12,9 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	go.etcd.io/bbolt v1.4.3
-	golang.org/x/sync v0.17.0
-	golang.org/x/term v0.36.0
-	golang.org/x/text v0.30.0
+	golang.org/x/sync v0.18.0
+	golang.org/x/term v0.37.0
+	golang.org/x/text v0.31.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
@@ -36,7 +36,7 @@ require (
 	github.com/olekukonko/ll v0.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	golang.org/x/oauth2 v0.32.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/oauth2 v0.33.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
