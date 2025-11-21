@@ -35,7 +35,7 @@ const (
 var ErrNotFound = errors.New("not found")
 
 // Version is overwritten in the CI release process.
-var Version = "0.4.0"
+var Version = "0.5.0"
 
 func main() {
 	exitWithError := func(err error) {
@@ -62,7 +62,8 @@ func main() {
 
 func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath, logFilePath string) error {
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
-	clearCache := fs.BoolP("clear-cache", "c", false, "clear the local cache before the lookup")
+	category := fs.StringP("category", "c", "", "limit results to a category")
+	clearCache := fs.Bool("clear-cache", false, "clear the local cache before the lookup")
 	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
 	logLevel := fs.StringP("log-level", "l", logLevelDefault, "set the log level for the current run")
 	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
@@ -92,7 +93,7 @@ Examples:
 		return nil
 	}
 	if *showFiles {
-		fmt.Fprintf(stdout, "DB: %s\n", dbFilepath)
+		fmt.Fprintf(stdout, "Cache: %s\n", dbFilepath)
 		fmt.Fprintf(stdout, "Log: %s\n", logFilePath)
 		return nil
 	}
@@ -116,6 +117,29 @@ Examples:
 	defer logger.Close()
 	log.SetOutput(logger)
 
+	// category
+	if *category != "" {
+		validCategories := map[EveEntityCategory]struct{}{
+			CategoryAgent:         {},
+			CategoryAlliance:      {},
+			CategoryCharacter:     {},
+			CategoryConstellation: {},
+			CategoryCorporation:   {},
+			CategoryFaction:       {},
+			CategoryInventoryType: {},
+			CategoryRegion:        {},
+			CategorySolarSystem:   {},
+			CategoryStation:       {},
+		}
+		if _, ok := validCategories[EveEntityCategory(*category)]; !ok {
+			var v []string
+			for k := range validCategories {
+				v = append(v, string(k))
+			}
+			slices.Sort(v)
+			return fmt.Errorf("valid categories are: %s", strings.Join(v, ", "))
+		}
+	}
 	// Setup storage
 	db, err := bolt.Open(dbFilepath, 0600, nil)
 	if err != nil {
@@ -138,6 +162,7 @@ Examples:
 	a := NewApp(esiClient, st, stdout)
 	a.MaxWidth = *maxWidth
 	a.SpinnerDisabled = *noSpinner
+	a.EntityCategory = EveEntityCategory(*category)
 
 	if fs.NArg() == 0 {
 		fs.Usage()
