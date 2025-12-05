@@ -2,7 +2,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +22,8 @@ import (
 	"golang.org/x/term"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+// TODO: Add tests for new authorize and search features
 
 const (
 	appName           = "elt"
@@ -66,14 +67,16 @@ func main() {
 
 func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath, logFilePath string) error {
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
+	authorize := fs.Bool("authorize", false, "authorize elt for search")
 	category := fs.StringP("category", "c", "", "limit results to a category")
 	clearCache := fs.Bool("clear-cache", false, "clear the local cache before the lookup")
-	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
 	logLevel := fs.StringP("log-level", "l", logLevelDefault, "set the log level for the current run")
 	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
-	showVersion := fs.BoolP("version", "v", false, "print the version")
+	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
 	showFiles := fs.Bool("files", false, "show path to files created by elt")
-	authorize := fs.Bool("authorize", false, "authorize elt for search")
+	showVersion := fs.BoolP("version", "v", false, "print the version")
+	search := fs.BoolP("search", "s", false, "perform search instead of lookup")
+
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
   elt [options] value [value ...]
@@ -156,47 +159,38 @@ Examples:
 		return err
 	}
 
-	// Authorize app
-	if *authorize {
-		client, err := eveauth.NewClient(eveauth.Config{
-			ClientID: ssoClientID,
-			Port:     ssoPort,
-		})
-		if err != nil {
-			return err
-		}
-		tok, err := client.Authorize(context.Background(), []string{"esi-search.search_structures.v1"})
-		if err != nil {
-			return err
-		}
-		err = st.UpdateOrCreateEveToken(EveToken{
-			AccessToken:   tok.AccessToken,
-			CharacterID:   tok.CharacterID,
-			CharacterName: tok.CharacterName,
-			ExpiresAt:     tok.ExpiresAt,
-			RefreshToken:  tok.RefreshToken,
-			Scopes:        tok.Scopes,
-			TokenType:     tok.TokenType,
-		})
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "elt has been authorized with character %s\n", tok.CharacterName)
-		return nil
-	}
-
-	// Setup clients
+	// retryablehttp
 	rhc := retryablehttp.NewClient()
 	rhc.Logger = slog.Default()
 	rhc.ResponseLogHook = logResponse
 	rhc.HTTPClient.Timeout = httpClientTimeout
+
+	// eveauth
+	authClient, err := eveauth.NewClient(eveauth.Config{
+		ClientID: ssoClientID,
+		Port:     ssoPort,
+	})
+	if err != nil {
+		return err
+	}
+
+	// goesi
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, esiUserAgentEmail, sourceURL)
 	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	a := NewApp(esiClient, st, stdout)
+	a := NewApp(authClient, esiClient, st, stdout)
 	a.MaxWidth = *maxWidth
 	a.SpinnerDisabled = *noSpinner
 	a.EntityCategory = EveEntityCategory(*category)
+
+	// Authorize app
+	if *authorize {
+		err := a.Authorize()
+		if err != nil {
+			return err
+		}
+		return nil
+	}
 
 	if fs.NArg() == 0 {
 		fs.Usage()
@@ -211,9 +205,18 @@ Examples:
 		fmt.Fprintf(stdout, "cache cleared (%d objects)\n", n)
 	}
 
-	err = a.Run(fs.Args())
+	if *search {
+		err = a.Search(fs.Args())
+		if err != nil {
+			slog.Error("Search failed", "error", err)
+			return err // also need to tell the user about the error
+		}
+		return nil
+	}
+
+	err = a.Lookup(fs.Args())
 	if err != nil {
-		slog.Error("Run failed", "error", err)
+		slog.Error("Lookup failed", "error", err)
 		return err // also need to tell the user about the error
 	}
 	return nil

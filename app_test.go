@@ -609,9 +609,9 @@ func TestApp_Run(t *testing.T) {
 		t.Run(fmt.Sprintf("can resolve %s ID", o.Category), func(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer
-			a := NewApp(esiClient, st, &buf)
+			a := NewApp(nil, esiClient, st, &buf)
 			a.SpinnerDisabled = true
-			err := a.Run([]string{fmt.Sprint(o.ID)})
+			err := a.Lookup([]string{fmt.Sprint(o.ID)})
 			if !assert.NoError(t, err) {
 				t.Fatal(err)
 			}
@@ -627,9 +627,9 @@ func TestApp_Run(t *testing.T) {
 		t.Run(fmt.Sprintf("can resolve %s name", o.Category), func(t *testing.T) {
 			st.Clear()
 			var buf bytes.Buffer
-			a := NewApp(esiClient, st, &buf)
+			a := NewApp(nil, esiClient, st, &buf)
 			a.SpinnerDisabled = true
-			err := a.Run([]string{o.Name})
+			err := a.Lookup([]string{o.Name})
 			if !assert.NoError(t, err) {
 				t.Fatal(err)
 			}
@@ -644,9 +644,9 @@ func TestApp_Run(t *testing.T) {
 	t.Run("can resolve a mix of ID and name", func(t *testing.T) {
 		st.Clear()
 		var buf bytes.Buffer
-		a := NewApp(esiClient, st, &buf)
+		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
-		err := a.Run([]string{fmt.Sprint(93330670), "Amamake"})
+		err := a.Lookup([]string{fmt.Sprint(93330670), "Amamake"})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -661,9 +661,9 @@ func TestApp_Run(t *testing.T) {
 	t.Run("can show shown when an ID is invalid", func(t *testing.T) {
 		st.Clear()
 		var buf bytes.Buffer
-		a := NewApp(esiClient, st, &buf)
+		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
-		err := a.Run([]string{fmt.Sprint(666)})
+		err := a.Lookup([]string{fmt.Sprint(666)})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -675,9 +675,9 @@ func TestApp_Run(t *testing.T) {
 	t.Run("can show shown when a Name is invalid", func(t *testing.T) {
 		st.Clear()
 		var buf bytes.Buffer
-		a := NewApp(esiClient, st, &buf)
+		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
-		err := a.Run([]string{"xyz"})
+		err := a.Lookup([]string{"xyz"})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -689,9 +689,9 @@ func TestApp_Run(t *testing.T) {
 	t.Run("should ignore ID 0", func(t *testing.T) {
 		st.Clear()
 		var buf bytes.Buffer
-		a := NewApp(esiClient, st, &buf)
+		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
-		err := a.Run([]string{fmt.Sprint(0), fmt.Sprint(93330670)})
+		err := a.Lookup([]string{fmt.Sprint(0), fmt.Sprint(93330670)})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
