@@ -302,3 +302,14 @@ func (o EveStation) IsStale() bool {
 func (o EveStation) IsValid() bool {
 	return o.ID() != 0
 }
+
+// EveToken represents an OAuth2 token for a character in Eve Online.
+type EveToken struct {
+	AccessToken   string    `json:"access_token"`
+	CharacterID   int32     `json:"character_id"`
+	CharacterName string    `json:"character_name"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	RefreshToken  string    `json:"refresh_token"`
+	Scopes        []string  `json:"scopes"`
+	TokenType     string    `json:"token_type"`
+}

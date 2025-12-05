@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ErikKalkoken/eveauth"
 	"github.com/adrg/xdg"
 	"github.com/antihax/goesi"
 	"github.com/hashicorp/go-retryablehttp"
@@ -25,11 +27,13 @@ import (
 const (
 	appName           = "elt"
 	esiUserAgentEmail = "kalkoken87@gmail.com"
+	httpClientTimeout = 30 * time.Second
 	logLevelDefault   = "info"
 	logMaxBackups     = 3
 	logMaxSizeMB      = 50
-	httpClientTimeout = 30 * time.Second
 	sourceURL         = "https://github.com/ErikKalkoken/elt"
+	ssoPort           = 30333
+	ssoClientID       = "0b2d75d9d16646ddb86b97824d405d52"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -69,6 +73,7 @@ func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath, lo
 	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
 	showVersion := fs.BoolP("version", "v", false, "print the version")
 	showFiles := fs.Bool("files", false, "show path to files created by elt")
+	authorize := fs.Bool("authorize", false, "authorize elt for search")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
   elt [options] value [value ...]
@@ -149,6 +154,35 @@ Examples:
 	st := NewStorage(db)
 	if err := st.Init(); err != nil {
 		return err
+	}
+
+	// Authorize app
+	if *authorize {
+		client, err := eveauth.NewClient(eveauth.Config{
+			ClientID: ssoClientID,
+			Port:     ssoPort,
+		})
+		if err != nil {
+			return err
+		}
+		tok, err := client.Authorize(context.Background(), []string{"esi-search.search_structures.v1"})
+		if err != nil {
+			return err
+		}
+		err = st.UpdateOrCreateEveToken(EveToken{
+			AccessToken:   tok.AccessToken,
+			CharacterID:   tok.CharacterID,
+			CharacterName: tok.CharacterName,
+			ExpiresAt:     tok.ExpiresAt,
+			RefreshToken:  tok.RefreshToken,
+			Scopes:        tok.Scopes,
+			TokenType:     tok.TokenType,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "elt has been authorized with character %s\n", tok.CharacterName)
+		return nil
 	}
 
 	// Setup clients

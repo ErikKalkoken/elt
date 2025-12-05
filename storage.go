@@ -26,6 +26,11 @@ const (
 	bucketEveType          = "eve_types"
 )
 
+const (
+	bucketMisc  = "miscellaneous"
+	keyEveToken = "eve-token"
+)
+
 var bucketNames = []string{
 	bucketEveAlliance,
 	bucketEveCategory,
@@ -39,6 +44,7 @@ var bucketNames = []string{
 	bucketEveSolarSystem,
 	bucketEveStation,
 	bucketEveType,
+	bucketMisc,
 }
 
 type Storage struct {
@@ -126,6 +132,51 @@ func (st *Storage) ListFreshEveEntitiesByName(names []string) ([]EveEntity, erro
 		return nil, err
 	}
 	return objs, nil
+}
+
+func (st *Storage) GetEveToken() (EveToken, error) {
+	var obj EveToken
+	if err := st.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketMisc))
+		if b == nil {
+			return fmt.Errorf("bucket does not exist: %s", bucketMisc)
+		}
+		v := b.Get([]byte(keyEveToken))
+		if v == nil {
+			return ErrNotFound
+		}
+		if err := json.Unmarshal(v, &obj); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return EveToken{}, fmt.Errorf("GetEveToken: %w", err)
+	}
+	return obj, nil
+}
+
+func (st *Storage) UpdateOrCreateEveToken(obj EveToken) error {
+	if obj.CharacterID == 0 || obj.AccessToken == "" || obj.RefreshToken == "" {
+		return fmt.Errorf("invalid: %+v", obj)
+	}
+	if err := st.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketMisc))
+		if b == nil {
+			return fmt.Errorf("bucket does not exist: %s", bucketMisc)
+		}
+		v, err := json.Marshal(obj)
+		if err != nil {
+			return err
+		}
+		if err := b.Put([]byte(keyEveToken), v); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("UpdateOrCreateEveToken %d: %w", obj.CharacterID, err)
+	}
+	slog.Info("Token created/updated", "characterID", obj.CharacterID)
+	return nil
 }
 
 type EveObject interface {
