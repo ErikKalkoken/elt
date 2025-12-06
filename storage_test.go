@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	bolt "go.etcd.io/bbolt"
 )
 
-func TestStorageEveEntites(t *testing.T) {
+func TestStorage_EveEntites(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "elt.db")
 	db, err := bolt.Open(p, 0600, nil)
 	if err != nil {
@@ -106,8 +107,8 @@ func TestStorageEveEntites(t *testing.T) {
 	})
 }
 
-// TestStorageEveTypes represents the tests for all generated methods.
-func TestStorageEveTypes(t *testing.T) {
+// TestStorage_EveTypes represents the tests for all generated methods.
+func TestStorage_EveTypes(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "elt.db")
 	db, err := bolt.Open(p, 0600, nil)
 	if err != nil {
@@ -188,5 +189,67 @@ func TestStorageEveTypes(t *testing.T) {
 		want := []int32{1, 3}
 		assert.ElementsMatch(t, want, got)
 		assert.ElementsMatch(t, []int32{4}, missing)
+	})
+}
+
+func TestStorage_EveToken(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "elt.db")
+	db, err := bolt.Open(p, 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	st := NewStorage(db)
+	if err := st.Init(); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("should create a new token", func(t *testing.T) {
+		st.MustClear()
+		tok1 := EveToken{
+			AccessToken:   "AccessToken",
+			CharacterID:   42,
+			CharacterName: "CharacterName",
+			ExpiresAt:     time.Now().UTC(),
+			RefreshToken:  "RefreshToken",
+			Scopes:        []string{"abc", "def"},
+			TokenType:     "TokenType",
+		}
+		err = st.UpdateOrCreateEveToken(tok1)
+		require.NoError(t, err)
+		tok2, err := st.GetEveToken()
+		require.NoError(t, err)
+		assert.Equal(t, tok1, tok2)
+	})
+	t.Run("should update existing token", func(t *testing.T) {
+		st.MustClear()
+		tok1 := EveToken{
+			AccessToken:   "AccessToken",
+			CharacterID:   42,
+			CharacterName: "CharacterName",
+			ExpiresAt:     time.Now().UTC(),
+			RefreshToken:  "RefreshToken",
+			Scopes:        []string{"abc", "def"},
+			TokenType:     "TokenType",
+		}
+		err = st.UpdateOrCreateEveToken(tok1)
+		require.NoError(t, err)
+		tok2 := EveToken{
+			AccessToken:   "AccessToken1",
+			CharacterID:   43,
+			CharacterName: "CharacterName1",
+			ExpiresAt:     time.Now().UTC(),
+			RefreshToken:  "RefreshToken1",
+			Scopes:        []string{"abc1", "def1"},
+			TokenType:     "TokenType1",
+		}
+		err = st.UpdateOrCreateEveToken(tok2)
+		tok3, err := st.GetEveToken()
+		require.NoError(t, err)
+		assert.Equal(t, tok2, tok3)
+	})
+	t.Run("should return error when token not found", func(t *testing.T) {
+		st.MustClear()
+		_, err := st.GetEveToken()
+		assert.ErrorIs(t, err, ErrNotFound)
 	})
 }

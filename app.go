@@ -9,10 +9,13 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"os"
+	"os/signal"
 	"slices"
 	"strconv"
 	"time"
 
+	"github.com/ErikKalkoken/eveauth"
 	"github.com/antihax/goesi"
 	"github.com/antihax/goesi/esi"
 	"github.com/olekukonko/tablewriter"
@@ -26,8 +29,14 @@ const (
 	nameInvalid = "INVALID"
 )
 
+type AuthClient interface {
+	Authorize(ctx context.Context, scopes []string) (*eveauth.Token, error)
+	RefreshToken(ctx context.Context, token *eveauth.Token) error
+}
+
 type result struct {
 	category EveEntityCategory
+	count    int
 	table    *tablewriter.Table
 }
 
@@ -38,25 +47,90 @@ type App struct {
 	// When specified limit the results to this category
 	EntityCategory EveEntityCategory
 
+	// Max returned results.
+	MaxResults int
+
 	// Max width of the terminal in characters.
 	MaxWidth int
 
-	esiClient *goesi.APIClient
-	out       io.Writer
-	st        *Storage
+	authClient AuthClient
+	esiClient  *goesi.APIClient
+	out        io.Writer
+	st         *Storage
 }
 
-func NewApp(esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
+func NewApp(authClient AuthClient, esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
 	a := App{
-		esiClient: esiClient,
-		out:       out,
-		st:        st,
+		authClient: authClient,
+		esiClient:  esiClient,
+		out:        out,
+		st:         st,
 	}
 	return a
 }
 
-// Run is the main entry point.
-func (a App) Run(args []string) error {
+func (a App) Authorize() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		token *eveauth.Token
+		err   error
+	}
+	resultCh := make(chan result)
+	stopCh := make(chan os.Signal, 1)
+	signal.Notify(stopCh, os.Interrupt)
+	var bar *progressbar.ProgressBar
+	if !a.SpinnerDisabled {
+		bar = progressbar.NewOptions(-1,
+			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
+			progressbar.OptionSetDescription("Starting authorization in browser. CTRL-C to abort"),
+			progressbar.OptionSetElapsedTime(false),
+			progressbar.OptionSetRenderBlankState(true),
+			progressbar.OptionSetWriter(a.out),
+			progressbar.OptionClearOnFinish(),
+		)
+	}
+	go func() {
+		token, err := a.authClient.Authorize(
+			ctx,
+			[]string{"esi-search.search_structures.v1"},
+		)
+		resultCh <- result{token, err}
+	}()
+	var r result
+	select {
+	case r = <-resultCh:
+	case <-stopCh:
+		cancel()
+		r = <-resultCh
+	}
+	if bar != nil {
+		bar.Finish()
+	}
+	if errors.Is(r.err, eveauth.ErrAborted) {
+		fmt.Fprintln(a.out, "Authorization flow has been canceled")
+		return nil
+	}
+	if r.err != nil {
+		return r.err
+	}
+	if err := a.st.UpdateOrCreateEveToken(EveToken{
+		AccessToken:   r.token.AccessToken,
+		CharacterID:   r.token.CharacterID,
+		CharacterName: r.token.CharacterName,
+		ExpiresAt:     r.token.ExpiresAt,
+		RefreshToken:  r.token.RefreshToken,
+		Scopes:        r.token.Scopes,
+		TokenType:     r.token.TokenType,
+	}); err != nil {
+		return err
+	}
+	fmt.Fprintf(a.out, "%s has been authorized with character %s\n", appName, r.token.CharacterName)
+	return nil
+}
+
+// Lookup is the main entry point.
+func (a App) Lookup(args []string) error {
 	// Parse args
 	var (
 		ids     []int32
@@ -93,6 +167,7 @@ func (a App) Run(args []string) error {
 			progressbar.OptionSetDescription(fmt.Sprintf("Resolving %d IDs/names ...", count)),
 			progressbar.OptionSetRenderBlankState(true),
 			progressbar.OptionSetWriter(a.out),
+			progressbar.OptionClearOnFinish(),
 		)
 	}
 	g := new(errgroup.Group)
@@ -121,10 +196,110 @@ func (a App) Run(args []string) error {
 		return err
 	}
 	entities := slices.Concat(entities1, entities2)
-
 	slog.Info("resolved entities from input values", "count", len(entities))
+	slices.SortFunc(entities, func(a, b EveEntity) int {
+		return cmp.Compare(a.EntityID, b.EntityID)
+	})
+	totalCount := len(entities)
+	if a.MaxResults != 0 && totalCount > a.MaxResults {
+		entities = entities[:a.MaxResults]
+	}
+	return a.compileResults(entities, bar, totalCount)
+}
 
-	// build results
+func (a App) Search(search string) error {
+	if search == "" {
+		return fmt.Errorf("please provide a non-empty search string")
+	}
+	tok, err := a.st.GetEveToken()
+	if errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("you must authorize elt before you can use search")
+	}
+	var bar *progressbar.ProgressBar
+	if !a.SpinnerDisabled {
+		bar = progressbar.NewOptions(-1,
+			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
+			progressbar.OptionSetDescription("Searching..."),
+			progressbar.OptionSetRenderBlankState(true),
+			progressbar.OptionSetWriter(a.out),
+			progressbar.OptionClearOnFinish(),
+		)
+	}
+	if time.Until(tok.ExpiresAt) < 30*time.Second {
+		bar.Describe("Refreshing token...")
+		tok2 := &eveauth.Token{
+			AccessToken:   tok.AccessToken,
+			CharacterID:   tok.CharacterID,
+			CharacterName: tok.CharacterName,
+			ExpiresAt:     tok.ExpiresAt,
+			RefreshToken:  tok.RefreshToken,
+			Scopes:        tok.Scopes,
+			TokenType:     tok.TokenType,
+		}
+		err := a.authClient.RefreshToken(context.Background(), tok2)
+		if err != nil {
+			return err
+		}
+		tok.AccessToken = tok2.AccessToken
+		tok.RefreshToken = tok2.RefreshToken
+		tok.ExpiresAt = tok2.ExpiresAt
+		if err := a.st.UpdateOrCreateEveToken(tok); err != nil {
+			return err
+		}
+	}
+	if bar != nil {
+		bar.Describe(fmt.Sprintf("Searching for %s...", search))
+	}
+	var categories []string
+	if a.EntityCategory != CategoryUndefined {
+		categories = []string{string(a.EntityCategory)}
+	} else {
+		categories = []string{
+			"agent",
+			"alliance",
+			"character",
+			"constellation",
+			"corporation",
+			"faction",
+			"inventory_type",
+			"region",
+			"solar_system",
+			"station",
+		}
+	}
+	ctx := context.WithValue(context.Background(), goesi.ContextAccessToken, tok.AccessToken)
+	x, _, err := a.esiClient.ESI.SearchApi.GetCharactersCharacterIdSearch(ctx, categories, tok.CharacterID, search, nil)
+	if err != nil {
+		return err
+	}
+	ids := slices.Concat(
+		x.Agent,
+		x.Alliance,
+		x.Character,
+		x.Corporation,
+		x.Constellation,
+		x.Faction,
+		x.InventoryType,
+		x.SolarSystem,
+		x.Station,
+		x.Region,
+	)
+	slices.Sort(ids)
+	totalCount := len(ids)
+	if a.MaxResults != 0 && totalCount > a.MaxResults {
+		ids = ids[:a.MaxResults]
+	}
+	oo, err := a.resolveIDs(ids)
+	if err != nil {
+		return err
+	}
+	if err := a.compileResults(oo, bar, totalCount); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a App) compileResults(entities []EveEntity, bar *progressbar.ProgressBar, totalCount int) error {
 	category2IDs := make(map[EveEntityCategory][]int32)
 	for _, e := range entities {
 		if a.EntityCategory != CategoryUndefined && a.EntityCategory != e.Category {
@@ -135,11 +310,14 @@ func (a App) Run(args []string) error {
 	results := make([]result, len(category2IDs))
 	if len(results) == 0 {
 		if bar != nil {
-			bar.Clear()
+			bar.Finish()
 		}
 		fmt.Fprintln(a.out, "Nothing found")
+		return nil
 	}
-
+	if bar != nil {
+		bar.Describe(fmt.Sprintf("Compiling %d results...", len(entities)))
+	}
 	g2 := new(errgroup.Group)
 	for i, c := range slices.Sorted(maps.Keys(category2IDs)) {
 		g2.Go(func() error {
@@ -150,61 +328,61 @@ func (a App) Run(args []string) error {
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryAlliance:
 				t, err := a.buildAllianceTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryCharacter:
 				t, err := a.buildCharacterTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryConstellation:
 				t, err := a.buildConstellationTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryCorporation:
 				t, err := a.buildCorporationTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryFaction:
 				t, err := a.buildFactionTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryInventoryType:
 				t, err := a.buildTypeTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryRegion:
 				t, err := a.buildRegionTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategorySolarSystem:
 				t, err := a.buildSolarSystemTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryStation:
 				t, err := a.buildStationTable(ids)
 				if err != nil {
 					return err
 				}
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(ids), table: t}
 			case CategoryInvalid:
 				entities2 := slices.DeleteFunc(entities, func(o EveEntity) bool {
 					return o.Category != CategoryInvalid
@@ -216,7 +394,7 @@ func (a App) Run(args []string) error {
 						return []any{o.EntityID, o.Name, o.Category.Display()}
 					},
 				)
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: len(entities2), table: t}
 			default:
 				entities, _, err := a.st.ListFreshEveEntityByID(ids)
 				if err != nil {
@@ -230,7 +408,7 @@ func (a App) Run(args []string) error {
 						return []any{o.EntityID, o.Name, o.Category.Display()}
 					},
 				)
-				results[i] = result{c, t}
+				results[i] = result{category: c, count: 0, table: t}
 			}
 			slog.Info("Resolved objects", "category", c, "count", len(ids))
 			return nil
@@ -241,15 +419,21 @@ func (a App) Run(args []string) error {
 	}
 
 	if bar != nil {
-		bar.Clear()
+		bar.Finish()
 	}
 
 	// Print results
+	currentCount := len(entities)
+	if totalCount > currentCount {
+		fmt.Fprintf(a.out, "Found %d result(s) (truncated from %d total):\n", currentCount, totalCount)
+	} else {
+		fmt.Fprintf(a.out, "Found %d result(s):\n", totalCount)
+	}
 	for _, r := range results {
 		if r.table == nil {
 			continue
 		}
-		fmt.Fprintln(a.out, r.category.Display()+":")
+		fmt.Fprintf(a.out, "%s (%d):\n", r.category.Display(), r.count)
 		r.table.Render()
 	}
 	return nil

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ErikKalkoken/eveauth"
 	"github.com/adrg/xdg"
 	"github.com/antihax/goesi"
 	"github.com/hashicorp/go-retryablehttp"
@@ -25,17 +26,20 @@ import (
 const (
 	appName           = "elt"
 	esiUserAgentEmail = "kalkoken87@gmail.com"
+	httpClientTimeout = 30 * time.Second
 	logLevelDefault   = "info"
 	logMaxBackups     = 3
 	logMaxSizeMB      = 50
-	httpClientTimeout = 30 * time.Second
+	maxResultsDefault = 25
 	sourceURL         = "https://github.com/ErikKalkoken/elt"
+	ssoPort           = 30333
+	ssoClientID       = "0b2d75d9d16646ddb86b97824d405d52"
 )
 
 var ErrNotFound = errors.New("not found")
 
 // Version is overwritten in the CI release process.
-var Version = "0.5.0"
+var Version = "0.6.0"
 
 func main() {
 	exitWithError := func(err error) {
@@ -62,16 +66,20 @@ func main() {
 
 func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath, logFilePath string) error {
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
+	authorize := fs.Bool("authorize", false, "authorize elt for using search (desktops only)")
 	category := fs.StringP("category", "c", "", "limit results to a category")
 	clearCache := fs.Bool("clear-cache", false, "clear the local cache before the lookup")
-	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
 	logLevel := fs.StringP("log-level", "l", logLevelDefault, "set the log level for the current run")
 	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
-	showVersion := fs.BoolP("version", "v", false, "print the version")
+	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
+	search := fs.StringP("search", "s", "", "perform search instead of lookup (desktops only)")
 	showFiles := fs.Bool("files", false, "show path to files created by elt")
+	showVersion := fs.BoolP("version", "v", false, "print the version")
+	maxResults := fs.Int("max-results", maxResultsDefault, "set the maximum number of returned results. 0 = unlimited")
+
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
-  elt [options] value [value ...]
+  elt [options] [value [value ...]]
 
 Description:
   This command looks up EVE Online objects from the game server and prints them in the terminal.
@@ -83,7 +91,8 @@ Options:
 		fmt.Fprintln(os.Stderr, `
 Examples:
   elt 30000142
-  elt "Erik Kalkoken" 603`)
+  elt "Erik Kalkoken" 603
+  elt -s merlin`)
 	}
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -151,35 +160,67 @@ Examples:
 		return err
 	}
 
-	// Setup clients
+	if *clearCache {
+		n, err := st.ClearCached()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "cache cleared (%d objects)\n", n)
+		return nil
+	}
+
+	// retryablehttp
 	rhc := retryablehttp.NewClient()
 	rhc.Logger = slog.Default()
 	rhc.ResponseLogHook = logResponse
 	rhc.HTTPClient.Timeout = httpClientTimeout
+
+	// eveauth
+	authClient, err := eveauth.NewClient(eveauth.Config{
+		ClientID: ssoClientID,
+		Port:     ssoPort,
+		Logger:   slog.Default(),
+	})
+	if err != nil {
+		return err
+	}
+
+	// goesi
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, esiUserAgentEmail, sourceURL)
 	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
 
-	a := NewApp(esiClient, st, stdout)
+	a := NewApp(authClient, esiClient, st, stdout)
 	a.MaxWidth = *maxWidth
+	a.MaxResults = *maxResults
 	a.SpinnerDisabled = *noSpinner
 	a.EntityCategory = EveEntityCategory(*category)
+
+	// Authorize app
+	if *authorize {
+		err := a.Authorize()
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if *search != "" {
+		err = a.Search(*search)
+		if err != nil {
+			slog.Error("Search failed", "error", err)
+			return err // also need to tell the user about the error
+		}
+		return nil
+	}
 
 	if fs.NArg() == 0 {
 		fs.Usage()
 		return nil
 	}
 
-	if *clearCache {
-		n, err := st.Clear()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "cache cleared (%d objects)\n", n)
-	}
-
-	err = a.Run(fs.Args())
+	err = a.Lookup(fs.Args())
 	if err != nil {
-		slog.Error("Run failed", "error", err)
+		slog.Error("Lookup failed", "error", err)
 		return err // also need to tell the user about the error
 	}
 	return nil

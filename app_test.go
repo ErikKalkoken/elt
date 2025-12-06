@@ -2,16 +2,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/ErikKalkoken/eveauth"
 	"github.com/antihax/goesi"
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -21,7 +25,53 @@ type entity struct {
 	Category string `json:"category"`
 }
 
-func TestApp_Run(t *testing.T) {
+type AuthClientFake struct {
+	Token *eveauth.Token
+	Err   error
+}
+
+func (s AuthClientFake) Authorize(ctx context.Context, scopes []string) (*eveauth.Token, error) {
+	return s.Token, s.Err
+}
+
+func (s AuthClientFake) RefreshToken(ctx context.Context, token *eveauth.Token) error {
+	token.AccessToken = s.Token.AccessToken
+	token.RefreshToken = s.Token.RefreshToken
+	token.ExpiresAt = s.Token.ExpiresAt
+	return nil
+}
+
+func TestApp_Authorize(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "elt.db")
+	db, err := bolt.Open(p, 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	st := NewStorage(db)
+	if err := st.Init(); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("can authorize app", func(t *testing.T) {
+		tok1 := &eveauth.Token{
+			CharacterID:  42,
+			AccessToken:  "AccessToken",
+			RefreshToken: "RefreshToken",
+			ExpiresAt:    time.Now().Add(20 * time.Minute),
+		}
+		ac := &AuthClientFake{Token: tok1}
+		st.MustClear()
+		var buf bytes.Buffer
+		a := NewApp(ac, nil, st, &buf)
+		err = a.Authorize()
+		require.NoError(t, err)
+		tok2, err := st.GetEveToken()
+		require.NoError(t, err)
+		assert.Equal(t, tok1.AccessToken, tok2.AccessToken)
+	})
+}
+
+func TestApp_Lookup(t *testing.T) {
 	// creating test cases
 	primaryEntities := []entity{
 		{10000030, "Heimatar", "region"},
@@ -607,11 +657,11 @@ func TestApp_Run(t *testing.T) {
 			continue // not supported for IDs
 		}
 		t.Run(fmt.Sprintf("can resolve %s ID", o.Category), func(t *testing.T) {
-			st.Clear()
+			st.MustClear()
 			var buf bytes.Buffer
-			a := NewApp(esiClient, st, &buf)
+			a := NewApp(nil, esiClient, st, &buf)
 			a.SpinnerDisabled = true
-			err := a.Run([]string{fmt.Sprint(o.ID)})
+			err := a.Lookup([]string{fmt.Sprint(o.ID)})
 			if !assert.NoError(t, err) {
 				t.Fatal(err)
 			}
@@ -625,11 +675,11 @@ func TestApp_Run(t *testing.T) {
 
 	for _, o := range primaryEntities {
 		t.Run(fmt.Sprintf("can resolve %s name", o.Category), func(t *testing.T) {
-			st.Clear()
+			st.MustClear()
 			var buf bytes.Buffer
-			a := NewApp(esiClient, st, &buf)
+			a := NewApp(nil, esiClient, st, &buf)
 			a.SpinnerDisabled = true
-			err := a.Run([]string{o.Name})
+			err := a.Lookup([]string{o.Name})
 			if !assert.NoError(t, err) {
 				t.Fatal(err)
 			}
@@ -642,11 +692,11 @@ func TestApp_Run(t *testing.T) {
 	}
 
 	t.Run("can resolve a mix of ID and name", func(t *testing.T) {
-		st.Clear()
+		st.MustClear()
 		var buf bytes.Buffer
-		a := NewApp(esiClient, st, &buf)
+		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
-		err := a.Run([]string{fmt.Sprint(93330670), "Amamake"})
+		err := a.Lookup([]string{fmt.Sprint(93330670), "Amamake"})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -659,11 +709,11 @@ func TestApp_Run(t *testing.T) {
 	})
 
 	t.Run("can show shown when an ID is invalid", func(t *testing.T) {
-		st.Clear()
+		st.MustClear()
 		var buf bytes.Buffer
-		a := NewApp(esiClient, st, &buf)
+		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
-		err := a.Run([]string{fmt.Sprint(666)})
+		err := a.Lookup([]string{fmt.Sprint(666)})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -673,11 +723,11 @@ func TestApp_Run(t *testing.T) {
 	})
 
 	t.Run("can show shown when a Name is invalid", func(t *testing.T) {
-		st.Clear()
+		st.MustClear()
 		var buf bytes.Buffer
-		a := NewApp(esiClient, st, &buf)
+		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
-		err := a.Run([]string{"xyz"})
+		err := a.Lookup([]string{"xyz"})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
@@ -687,17 +737,102 @@ func TestApp_Run(t *testing.T) {
 	})
 
 	t.Run("should ignore ID 0", func(t *testing.T) {
-		st.Clear()
+		st.MustClear()
 		var buf bytes.Buffer
-		a := NewApp(esiClient, st, &buf)
+		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
-		err := a.Run([]string{fmt.Sprint(0), fmt.Sprint(93330670)})
+		err := a.Lookup([]string{fmt.Sprint(0), fmt.Sprint(93330670)})
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
 		got := buf.String()
 		assert.Contains(t, got, fmt.Sprint(93330670))
 		assert.Contains(t, got, "Erik Kalkoken")
+	})
+}
+
+func TestApp_Search(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "elt.db")
+	db, err := bolt.Open(p, 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	st := NewStorage(db)
+	if err := st.Init(); err != nil {
+		t.Fatal(err)
+	}
+	et := EveToken{
+		CharacterID:  42,
+		AccessToken:  "AccessToken",
+		ExpiresAt:    time.Now().Add(20 * time.Minute),
+		RefreshToken: "RefreshToken",
+	}
+	t.Run("should abort with error when not authorized", func(t *testing.T) {
+		st.MustClear()
+		var buf bytes.Buffer
+		a := NewApp(nil, nil, st, &buf)
+		err = a.Search("dummy")
+		assert.Error(t, err)
+	})
+	t.Run("should abort with error when no values given", func(t *testing.T) {
+		st.MustClear()
+		var buf bytes.Buffer
+		err = st.UpdateOrCreateEveToken(et)
+		require.NoError(t, err)
+		a := NewApp(nil, nil, st, &buf)
+		err = a.Search("")
+		assert.Error(t, err)
+	})
+	t.Run("should return results when found", func(t *testing.T) {
+		st.MustClear()
+		httpmock.Activate()
+		defer httpmock.DeactivateAndReset()
+		httpmock.RegisterResponder(
+			"GET",
+			`=~^https://esi\.evetech\.net/v\d+/characters/(\d+)/search`,
+			httpmock.NewJsonResponderOrPanic(200, map[string][]int32{
+				"inventory_type": {603},
+			}),
+		)
+		var buf bytes.Buffer
+		err = st.UpdateOrCreateEveToken(et)
+		require.NoError(t, err)
+		err = st.UpdateOrCreateEveEntity([]EveEntity{{
+			EntityID:  603,
+			Name:      "Merlin",
+			Category:  CategoryInventoryType,
+			Timestamp: time.Now(),
+		}})
+		require.NoError(t, err)
+		err = st.UpdateOrCreateEveCategory([]EveCategory{{
+			CategoryID: 6,
+			Name:       "Ship",
+			Timestamp:  time.Now(),
+		}})
+		require.NoError(t, err)
+		err = st.UpdateOrCreateEveGroup([]EveGroup{{
+			CategoryID: 6,
+			GroupID:    25,
+			Name:       "Frigate",
+			Timestamp:  time.Now(),
+		}})
+		require.NoError(t, err)
+		err = st.UpdateOrCreateEveType([]EveType{{
+			GroupID:   25,
+			Name:      "Merlin",
+			Timestamp: time.Now(),
+			TypeID:    603,
+		}})
+		require.NoError(t, err)
+		client := goesi.NewAPIClient(nil, "")
+		a := NewApp(nil, client, st, &buf)
+		a.SpinnerDisabled = true
+		err = a.Search("merlin")
+		require.NoError(t, err)
+		got := buf.String()
+		assert.Contains(t, got, fmt.Sprint(603))
+		assert.Contains(t, got, "Merlin")
 	})
 }
 

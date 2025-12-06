@@ -17,8 +17,9 @@
 
 Main features:
 
-- Takes Eve IDs and names as input
-- Shows all found Eve object with details in a pretty table
+- Lookup Eve objects by ID and/or name
+- Search for Eve objects by name (desktop only)
+- Found Eve object are shown with details in a pretty table
 - Supports objects of the following categories (same as Universe API endpoints):
   - Agents
   - Alliances
