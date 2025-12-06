@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 
 	bolt "go.etcd.io/bbolt"
@@ -31,7 +32,7 @@ const (
 	keyEveToken = "eve-token"
 )
 
-var bucketNames = []string{
+var bucketNamesCached = []string{
 	bucketEveAlliance,
 	bucketEveCategory,
 	bucketEveCharacter,
@@ -44,6 +45,8 @@ var bucketNames = []string{
 	bucketEveSolarSystem,
 	bucketEveStation,
 	bucketEveType,
+}
+var bucketNamesNotCached = []string{
 	bucketMisc,
 }
 
@@ -58,7 +61,7 @@ func NewStorage(db *bolt.DB) *Storage {
 
 func (st *Storage) Init() error {
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		for _, n := range bucketNames {
+		for _, n := range slices.Concat(bucketNamesCached, bucketNamesNotCached) {
 			if _, err := tx.CreateBucketIfNotExists([]byte(n)); err != nil {
 				return fmt.Errorf("create bucket %s: %s", n, err)
 			}
@@ -70,11 +73,36 @@ func (st *Storage) Init() error {
 	return nil
 }
 
+// ClearCached deletes all cached objects.
+func (st *Storage) ClearCached() (int, error) {
+	var n int
+	if err := st.db.Update(func(tx *bolt.Tx) error {
+		for _, name := range bucketNamesCached {
+			b := tx.Bucket([]byte(name))
+			if b == nil {
+				return fmt.Errorf("bucket does not exist: %s", name)
+			}
+			c := b.Cursor()
+			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+				if err := c.Delete(); err != nil {
+					return err
+				}
+				n++
+			}
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	slog.Info("storage cleared", "deletedCount", n)
+	return n, nil
+}
+
 // Clear deletes all objects in all buckets.
 func (st *Storage) Clear() (int, error) {
 	var n int
 	if err := st.db.Update(func(tx *bolt.Tx) error {
-		for _, name := range bucketNames {
+		for _, name := range slices.Concat(bucketNamesCached, bucketNamesNotCached) {
 			b := tx.Bucket([]byte(name))
 			if b == nil {
 				return fmt.Errorf("bucket does not exist: %s", name)
@@ -156,7 +184,7 @@ func (st *Storage) GetEveToken() (EveToken, error) {
 }
 
 func (st *Storage) UpdateOrCreateEveToken(obj EveToken) error {
-	if obj.CharacterID == 0 || obj.AccessToken == "" || obj.RefreshToken == "" {
+	if obj.CharacterID == 0 || obj.AccessToken == "" || obj.RefreshToken == "" || obj.ExpiresAt.IsZero() {
 		return fmt.Errorf("invalid: %+v", obj)
 	}
 	if err := st.db.Update(func(tx *bolt.Tx) error {

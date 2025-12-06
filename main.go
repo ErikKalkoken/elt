@@ -24,6 +24,7 @@ import (
 )
 
 // TODO: Add tests for new authorize and search features
+// TODO: How to deal with large results? Paging? Limit max results? With option?
 
 const (
 	appName           = "elt"
@@ -40,7 +41,7 @@ const (
 var ErrNotFound = errors.New("not found")
 
 // Version is overwritten in the CI release process.
-var Version = "0.5.0"
+var Version = "0.6.0-dev"
 
 func main() {
 	exitWithError := func(err error) {
@@ -67,19 +68,19 @@ func main() {
 
 func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath, logFilePath string) error {
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
-	authorize := fs.Bool("authorize", false, "authorize elt for search")
+	authorize := fs.Bool("authorize", false, "authorize elt for using search (desktops only)")
 	category := fs.StringP("category", "c", "", "limit results to a category")
 	clearCache := fs.Bool("clear-cache", false, "clear the local cache before the lookup")
 	logLevel := fs.StringP("log-level", "l", logLevelDefault, "set the log level for the current run")
 	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
 	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
+	search := fs.StringP("search", "s", "", "perform search instead of lookup (desktops only)")
 	showFiles := fs.Bool("files", false, "show path to files created by elt")
 	showVersion := fs.BoolP("version", "v", false, "print the version")
-	search := fs.BoolP("search", "s", false, "perform search instead of lookup")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
-  elt [options] value [value ...]
+  elt [options] [value [value ...]]
 
 Description:
   This command looks up EVE Online objects from the game server and prints them in the terminal.
@@ -91,7 +92,8 @@ Options:
 		fmt.Fprintln(os.Stderr, `
 Examples:
   elt 30000142
-  elt "Erik Kalkoken" 603`)
+  elt "Erik Kalkoken" 603
+  elt -s merlin`)
 	}
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -169,6 +171,7 @@ Examples:
 	authClient, err := eveauth.NewClient(eveauth.Config{
 		ClientID: ssoClientID,
 		Port:     ssoPort,
+		Logger:   slog.Default(),
 	})
 	if err != nil {
 		return err
@@ -192,25 +195,25 @@ Examples:
 		return nil
 	}
 
-	if fs.NArg() == 0 {
-		fs.Usage()
-		return nil
-	}
-
 	if *clearCache {
-		n, err := st.Clear()
+		n, err := st.ClearCached()
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "cache cleared (%d objects)\n", n)
 	}
 
-	if *search {
-		err = a.Search(fs.Args())
+	if *search != "" {
+		err = a.Search(*search)
 		if err != nil {
 			slog.Error("Search failed", "error", err)
 			return err // also need to tell the user about the error
 		}
+		return nil
+	}
+
+	if fs.NArg() == 0 {
+		fs.Usage()
 		return nil
 	}
 

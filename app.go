@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"os"
+	"os/signal"
 	"slices"
 	"strconv"
 	"time"
@@ -27,6 +29,11 @@ const (
 	nameInvalid = "INVALID"
 )
 
+type AuthClient interface {
+	Authorize(ctx context.Context, scopes []string) (*eveauth.Token, error)
+	RefreshToken(ctx context.Context, token *eveauth.Token) error
+}
+
 type result struct {
 	category EveEntityCategory
 	count    int
@@ -43,13 +50,13 @@ type App struct {
 	// Max width of the terminal in characters.
 	MaxWidth int
 
-	authClient *eveauth.Client
+	authClient AuthClient
 	esiClient  *goesi.APIClient
 	out        io.Writer
 	st         *Storage
 }
 
-func NewApp(authClient *eveauth.Client, esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
+func NewApp(authClient AuthClient, esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
 	a := App{
 		authClient: authClient,
 		esiClient:  esiClient,
@@ -60,25 +67,61 @@ func NewApp(authClient *eveauth.Client, esiClient *goesi.APIClient, st *Storage,
 }
 
 func (a App) Authorize() error {
-	tok, err := a.authClient.Authorize(
-		context.Background(),
-		[]string{"esi-search.search_structures.v1"},
-	)
-	if err != nil {
-		return err
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		token *eveauth.Token
+		err   error
+	}
+	resultCh := make(chan result)
+	stopCh := make(chan os.Signal, 1)
+	signal.Notify(stopCh, os.Interrupt)
+	var bar *progressbar.ProgressBar
+	if !a.SpinnerDisabled {
+		bar = progressbar.NewOptions(-1,
+			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
+			progressbar.OptionSetDescription("Starting authorization in browser. CTRL-C to abort"),
+			progressbar.OptionSetElapsedTime(false),
+			progressbar.OptionSetRenderBlankState(true),
+			progressbar.OptionSetWriter(a.out),
+		)
+	}
+	go func() {
+		token, err := a.authClient.Authorize(
+			ctx,
+			[]string{"esi-search.search_structures.v1"},
+		)
+		resultCh <- result{token, err}
+	}()
+	var r result
+	select {
+	case r = <-resultCh:
+	case <-stopCh:
+		cancel()
+		r = <-resultCh
+	}
+	if bar != nil {
+		bar.Clear()
+	}
+	if errors.Is(r.err, eveauth.ErrAborted) {
+		fmt.Fprintln(a.out, "Authorization flow has been canceled")
+		return nil
+	}
+	if r.err != nil {
+		return r.err
 	}
 	if err := a.st.UpdateOrCreateEveToken(EveToken{
-		AccessToken:   tok.AccessToken,
-		CharacterID:   tok.CharacterID,
-		CharacterName: tok.CharacterName,
-		ExpiresAt:     tok.ExpiresAt,
-		RefreshToken:  tok.RefreshToken,
-		Scopes:        tok.Scopes,
-		TokenType:     tok.TokenType,
+		AccessToken:   r.token.AccessToken,
+		CharacterID:   r.token.CharacterID,
+		CharacterName: r.token.CharacterName,
+		ExpiresAt:     r.token.ExpiresAt,
+		RefreshToken:  r.token.RefreshToken,
+		Scopes:        r.token.Scopes,
+		TokenType:     r.token.TokenType,
 	}); err != nil {
 		return err
 	}
-	fmt.Fprintf(a.out, "%s has been authorized with character %s\n", appName, tok.CharacterName)
+	fmt.Fprintf(a.out, "%s has been authorized with character %s\n", appName, r.token.CharacterName)
 	return nil
 }
 
@@ -152,25 +195,25 @@ func (a App) Lookup(args []string) error {
 	return a.compileResults(entities, bar)
 }
 
-func (a App) Search(args []string) error {
-	if len(args) > 1 {
-		return fmt.Errorf("please provide only one value for search")
+func (a App) Search(search string) error {
+	if search == "" {
+		return fmt.Errorf("please provide a non-empty search string")
 	}
 	tok, err := a.st.GetEveToken()
 	if errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("you must authorize elt before you can use search")
 	}
-	search := args[0]
 	var bar *progressbar.ProgressBar
 	if !a.SpinnerDisabled {
 		bar = progressbar.NewOptions(-1,
 			progressbar.OptionSpinnerType(14), // choose spinner style (0–39)
-			progressbar.OptionSetDescription(fmt.Sprintf("Searching for %s...", search)),
+			progressbar.OptionSetDescription("Searching..."),
 			progressbar.OptionSetRenderBlankState(true),
 			progressbar.OptionSetWriter(a.out),
 		)
 	}
 	if time.Until(tok.ExpiresAt) < 30*time.Second {
+		bar.Describe("Refreshing token...")
 		tok2 := &eveauth.Token{
 			AccessToken:   tok.AccessToken,
 			CharacterID:   tok.CharacterID,
@@ -190,6 +233,9 @@ func (a App) Search(args []string) error {
 		if err := a.st.UpdateOrCreateEveToken(tok); err != nil {
 			return err
 		}
+	}
+	if bar != nil {
+		bar.Describe(fmt.Sprintf("Searching for %s...", search))
 	}
 	categories := []string{
 		"agent",
@@ -244,8 +290,11 @@ func (a App) compileResults(entities []EveEntity, bar *progressbar.ProgressBar) 
 			bar.Clear()
 		}
 		fmt.Fprintln(a.out, "Nothing found")
+		return nil
 	}
-
+	if bar != nil {
+		bar.Describe(fmt.Sprintf("Compiling %d results...", len(entities)))
+	}
 	g2 := new(errgroup.Group)
 	for i, c := range slices.Sorted(maps.Keys(category2IDs)) {
 		g2.Go(func() error {
