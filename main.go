@@ -23,9 +23,6 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// TODO: Add tests for new authorize and search features
-// TODO: How to deal with large results? Paging? Limit max results? With option?
-
 const (
 	appName           = "elt"
 	esiUserAgentEmail = "kalkoken87@gmail.com"
@@ -33,6 +30,7 @@ const (
 	logLevelDefault   = "info"
 	logMaxBackups     = 3
 	logMaxSizeMB      = 50
+	maxResultsDefault = 25
 	sourceURL         = "https://github.com/ErikKalkoken/elt"
 	ssoPort           = 30333
 	ssoClientID       = "0b2d75d9d16646ddb86b97824d405d52"
@@ -41,7 +39,7 @@ const (
 var ErrNotFound = errors.New("not found")
 
 // Version is overwritten in the CI release process.
-var Version = "0.6.0-dev"
+var Version = "0.6.0"
 
 func main() {
 	exitWithError := func(err error) {
@@ -77,6 +75,7 @@ func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath, lo
 	search := fs.StringP("search", "s", "", "perform search instead of lookup (desktops only)")
 	showFiles := fs.Bool("files", false, "show path to files created by elt")
 	showVersion := fs.BoolP("version", "v", false, "print the version")
+	maxResults := fs.Int("max-results", maxResultsDefault, "set the maximum number of returned results. 0 = unlimited")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
@@ -161,6 +160,15 @@ Examples:
 		return err
 	}
 
+	if *clearCache {
+		n, err := st.ClearCached()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "cache cleared (%d objects)\n", n)
+		return nil
+	}
+
 	// retryablehttp
 	rhc := retryablehttp.NewClient()
 	rhc.Logger = slog.Default()
@@ -183,6 +191,7 @@ Examples:
 
 	a := NewApp(authClient, esiClient, st, stdout)
 	a.MaxWidth = *maxWidth
+	a.MaxResults = *maxResults
 	a.SpinnerDisabled = *noSpinner
 	a.EntityCategory = EveEntityCategory(*category)
 
@@ -193,14 +202,6 @@ Examples:
 			return err
 		}
 		return nil
-	}
-
-	if *clearCache {
-		n, err := st.ClearCached()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "cache cleared (%d objects)\n", n)
 	}
 
 	if *search != "" {

@@ -47,6 +47,9 @@ type App struct {
 	// When specified limit the results to this category
 	EntityCategory EveEntityCategory
 
+	// Max returned results.
+	MaxResults int
+
 	// Max width of the terminal in characters.
 	MaxWidth int
 
@@ -84,6 +87,7 @@ func (a App) Authorize() error {
 			progressbar.OptionSetElapsedTime(false),
 			progressbar.OptionSetRenderBlankState(true),
 			progressbar.OptionSetWriter(a.out),
+			progressbar.OptionClearOnFinish(),
 		)
 	}
 	go func() {
@@ -101,7 +105,7 @@ func (a App) Authorize() error {
 		r = <-resultCh
 	}
 	if bar != nil {
-		bar.Clear()
+		bar.Finish()
 	}
 	if errors.Is(r.err, eveauth.ErrAborted) {
 		fmt.Fprintln(a.out, "Authorization flow has been canceled")
@@ -163,6 +167,7 @@ func (a App) Lookup(args []string) error {
 			progressbar.OptionSetDescription(fmt.Sprintf("Resolving %d IDs/names ...", count)),
 			progressbar.OptionSetRenderBlankState(true),
 			progressbar.OptionSetWriter(a.out),
+			progressbar.OptionClearOnFinish(),
 		)
 	}
 	g := new(errgroup.Group)
@@ -192,7 +197,14 @@ func (a App) Lookup(args []string) error {
 	}
 	entities := slices.Concat(entities1, entities2)
 	slog.Info("resolved entities from input values", "count", len(entities))
-	return a.compileResults(entities, bar)
+	slices.SortFunc(entities, func(a, b EveEntity) int {
+		return cmp.Compare(a.EntityID, b.EntityID)
+	})
+	totalCount := len(entities)
+	if a.MaxResults != 0 && totalCount > a.MaxResults {
+		entities = entities[:a.MaxResults]
+	}
+	return a.compileResults(entities, bar, totalCount)
 }
 
 func (a App) Search(search string) error {
@@ -210,6 +222,7 @@ func (a App) Search(search string) error {
 			progressbar.OptionSetDescription("Searching..."),
 			progressbar.OptionSetRenderBlankState(true),
 			progressbar.OptionSetWriter(a.out),
+			progressbar.OptionClearOnFinish(),
 		)
 	}
 	if time.Until(tok.ExpiresAt) < 30*time.Second {
@@ -237,17 +250,22 @@ func (a App) Search(search string) error {
 	if bar != nil {
 		bar.Describe(fmt.Sprintf("Searching for %s...", search))
 	}
-	categories := []string{
-		"agent",
-		"alliance",
-		"character",
-		"constellation",
-		"corporation",
-		"faction",
-		"inventory_type",
-		"region",
-		"solar_system",
-		"station",
+	var categories []string
+	if a.EntityCategory != CategoryUndefined {
+		categories = []string{string(a.EntityCategory)}
+	} else {
+		categories = []string{
+			"agent",
+			"alliance",
+			"character",
+			"constellation",
+			"corporation",
+			"faction",
+			"inventory_type",
+			"region",
+			"solar_system",
+			"station",
+		}
 	}
 	ctx := context.WithValue(context.Background(), goesi.ContextAccessToken, tok.AccessToken)
 	x, _, err := a.esiClient.ESI.SearchApi.GetCharactersCharacterIdSearch(ctx, categories, tok.CharacterID, search, nil)
@@ -266,17 +284,22 @@ func (a App) Search(search string) error {
 		x.Station,
 		x.Region,
 	)
+	slices.Sort(ids)
+	totalCount := len(ids)
+	if a.MaxResults != 0 && totalCount > a.MaxResults {
+		ids = ids[:a.MaxResults]
+	}
 	oo, err := a.resolveIDs(ids)
 	if err != nil {
 		return err
 	}
-	if err := a.compileResults(oo, bar); err != nil {
+	if err := a.compileResults(oo, bar, totalCount); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a App) compileResults(entities []EveEntity, bar *progressbar.ProgressBar) error {
+func (a App) compileResults(entities []EveEntity, bar *progressbar.ProgressBar, totalCount int) error {
 	category2IDs := make(map[EveEntityCategory][]int32)
 	for _, e := range entities {
 		if a.EntityCategory != CategoryUndefined && a.EntityCategory != e.Category {
@@ -287,7 +310,7 @@ func (a App) compileResults(entities []EveEntity, bar *progressbar.ProgressBar) 
 	results := make([]result, len(category2IDs))
 	if len(results) == 0 {
 		if bar != nil {
-			bar.Clear()
+			bar.Finish()
 		}
 		fmt.Fprintln(a.out, "Nothing found")
 		return nil
@@ -396,10 +419,16 @@ func (a App) compileResults(entities []EveEntity, bar *progressbar.ProgressBar) 
 	}
 
 	if bar != nil {
-		bar.Clear()
+		bar.Finish()
 	}
 
 	// Print results
+	currentCount := len(entities)
+	if totalCount > currentCount {
+		fmt.Fprintf(a.out, "Found %d result(s) (truncated from %d total):\n", currentCount, totalCount)
+	} else {
+		fmt.Fprintf(a.out, "Found %d result(s):\n", totalCount)
+	}
 	for _, r := range results {
 		if r.table == nil {
 			continue

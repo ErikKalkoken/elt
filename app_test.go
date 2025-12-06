@@ -769,12 +769,14 @@ func TestApp_Search(t *testing.T) {
 		RefreshToken: "RefreshToken",
 	}
 	t.Run("should abort with error when not authorized", func(t *testing.T) {
+		st.MustClear()
 		var buf bytes.Buffer
 		a := NewApp(nil, nil, st, &buf)
 		err = a.Search("dummy")
 		assert.Error(t, err)
 	})
 	t.Run("should abort with error when no values given", func(t *testing.T) {
+		st.MustClear()
 		var buf bytes.Buffer
 		err = st.UpdateOrCreateEveToken(et)
 		require.NoError(t, err)
@@ -783,6 +785,7 @@ func TestApp_Search(t *testing.T) {
 		assert.Error(t, err)
 	})
 	t.Run("should return results when found", func(t *testing.T) {
+		st.MustClear()
 		httpmock.Activate()
 		defer httpmock.DeactivateAndReset()
 		httpmock.RegisterResponder(
