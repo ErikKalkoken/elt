@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ErikKalkoken/go-set"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	bolt "go.etcd.io/bbolt"
@@ -57,12 +58,12 @@ func TestStorage_EveEntites(t *testing.T) {
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		got := make([]int32, 0)
+		var got set.Set[int32]
 		for _, x := range ee {
-			got = append(got, x.EntityID)
+			got.Add(x.EntityID)
 		}
-		want := []int32{o1.ID(), o2.ID(), o3.ID()}
-		assert.ElementsMatch(t, want, got)
+		want := set.Of(o1.ID(), o2.ID(), o3.ID())
+		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
 	})
 	t.Run("can list fresh entities by ID", func(t *testing.T) {
 		st.MustClear()
@@ -70,17 +71,18 @@ func TestStorage_EveEntites(t *testing.T) {
 		createEveEntity(EveEntity{EntityID: 2})
 		createEveEntity(EveEntity{EntityID: 3})
 		createEveEntity(EveEntity{EntityID: 4, Timestamp: time.Now().Add(-1000 * time.Hour)})
-		ee, missing, err := st.ListFreshEveEntityByID([]int32{1, 3, 4, 5})
+		ee, missing, err := st.ListFreshEveEntityByID(set.Of[int32](1, 3, 4, 5))
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		got := make([]int32, 0)
+		var got set.Set[int32]
 		for _, x := range ee {
-			got = append(got, x.ID())
+			got.Add(x.ID())
 		}
-		want := []int32{1, 3}
-		assert.ElementsMatch(t, want, got)
-		assert.ElementsMatch(t, []int32{4, 5}, missing)
+		want := set.Of[int32](1, 3)
+		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
+		wantMissing := set.Of[int32](4, 5)
+		assert.True(t, missing.Equal(wantMissing), "got %q, wanted %q", wantMissing, want)
 	})
 	t.Run("can list fresh entities by Name", func(t *testing.T) {
 		st.MustClear()
@@ -92,12 +94,12 @@ func TestStorage_EveEntites(t *testing.T) {
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		got := make([]int32, 0)
+		var got set.Set[int32]
 		for _, x := range ee {
-			got = append(got, x.EntityID)
+			got.Add(x.EntityID)
 		}
-		want := []int32{o1.ID(), o2.ID()}
-		assert.ElementsMatch(t, want, got)
+		want := set.Of(o1.ID(), o2.ID())
+		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
 	})
 	t.Run("should return error when trying to create object with ID 0", func(t *testing.T) {
 		st.MustClear()
@@ -178,17 +180,18 @@ func TestStorage_EveTypes(t *testing.T) {
 		createEveType(EveType{TypeID: 1})
 		createEveType(EveType{TypeID: 2})
 		createEveType(EveType{TypeID: 3})
-		ee, missing, err := st.ListFreshEveTypeByID([]int32{1, 3, 4})
+		ee, missing, err := st.ListFreshEveTypeByID(set.Of[int32](1, 3, 4))
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
-		got := make([]int32, 0)
+		var got set.Set[int32]
 		for _, x := range ee {
-			got = append(got, x.TypeID)
+			got.Add(x.TypeID)
 		}
-		want := []int32{1, 3}
-		assert.ElementsMatch(t, want, got)
-		assert.ElementsMatch(t, []int32{4}, missing)
+		want := set.Of[int32](1, 3)
+		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
+		wantMissing := set.Of[int32](4)
+		assert.True(t, missing.Equal(wantMissing), "got %q, wanted %q", wantMissing, want)
 	})
 }
 

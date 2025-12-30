@@ -33,12 +33,10 @@ cloud.google.com/go/storage v1.10.0/go.mod h1:FLPqc6j+Ki4BU591ie1oL6qBQGu2Bl/tZ9
 dmitri.shuralyov.com/gpu/mtl v0.0.0-20190408044501-666a987793e9/go.mod h1:H6x//7gZCb22OMCxBHrMx7a5I7Hp++hsVxbQ4BYO7hU=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
-github.com/ErikKalkoken/eveauth v0.0.0-20251205205652-916d758b201a h1:SSoFzgrD5jsoiaOev87h1juhgKYst4f8DdSlexEyUhg=
-github.com/ErikKalkoken/eveauth v0.0.0-20251205205652-916d758b201a/go.mod h1:MyD3zTCQrWeg9nnnK7EjstiQ1Wc2xJTMl8ZFkOXfuY8=
-github.com/ErikKalkoken/eveauth v0.0.0-20251205231050-efeb70febff3 h1:jy78hi9ob4dd1l7ak2EfM+179cnXJ9XxQaA99myvY0I=
-github.com/ErikKalkoken/eveauth v0.0.0-20251205231050-efeb70febff3/go.mod h1:MyD3zTCQrWeg9nnnK7EjstiQ1Wc2xJTMl8ZFkOXfuY8=
 github.com/ErikKalkoken/eveauth v0.1.0 h1:sK/wJK2puqbgZy20zYBkpC963CkSUQkz8uAlBcSLaus=
 github.com/ErikKalkoken/eveauth v0.1.0/go.mod h1:MyD3zTCQrWeg9nnnK7EjstiQ1Wc2xJTMl8ZFkOXfuY8=
+github.com/ErikKalkoken/go-set v0.3.0 h1:yJxMD/7UfVB4+wEJ9PD0A+pODy0vreyo72szy1UcgZQ=
+github.com/ErikKalkoken/go-set v0.3.0/go.mod h1:8hyYMuo2dqGaCGf32C/CILHMTVRJ9CV2vlcIPGOBe5I=
 github.com/adrg/xdg v0.5.3 h1:xRnxJXne7+oWDatRhR1JLnvuccuIeCoBu2rtuLqQB78=
 github.com/adrg/xdg v0.5.3/go.mod h1:nlTsY+NNiCBGCK2tpm09vRqfVzrc2fLmXGpBLF0zlTQ=
 github.com/antihax/goesi v0.0.0-20251103030832-a87832eae7ca h1:r5wWq4iMokxmGOrByxMFetDobervPD4u40oOqgaIY7s=

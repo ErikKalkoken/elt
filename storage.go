@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/ErikKalkoken/go-set"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -237,19 +238,19 @@ func listEveObjects[T EveObject](st *Storage, bucket string) ([]T, error) {
 	return objs, nil
 }
 
-func listFreshEveObjectsByID[T EveObject](st *Storage, bucket string, ids []int32) ([]T, []int32, error) {
-	notFound := make([]int32, 0)
+func listFreshEveObjectsByID[T EveObject](st *Storage, bucket string, ids set.Set[int32]) ([]T, set.Set[int32], error) {
+	var notFound set.Set[int32]
 	objs := make([]T, 0)
-	if err := st.db.View(func(tx *bolt.Tx) error {
+	err := st.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b == nil {
 			return fmt.Errorf("bucket does not exist: %s", bucket)
 		}
-		for _, id := range ids {
+		for id := range ids.All() {
 			k := []byte(strconv.Itoa(int(id)))
 			v := b.Get(k)
 			if v == nil {
-				notFound = append(notFound, id)
+				notFound.Add(id)
 				continue
 			}
 			var o T
@@ -257,14 +258,15 @@ func listFreshEveObjectsByID[T EveObject](st *Storage, bucket string, ids []int3
 				return err
 			}
 			if o.IsStale() {
-				notFound = append(notFound, id)
+				notFound.Add(id)
 				continue
 			}
 			objs = append(objs, o)
 		}
 		return nil
-	}); err != nil {
-		return nil, nil, fmt.Errorf("listFreshEveObjectsByID: %T: %w", objs, err)
+	})
+	if err != nil {
+		return nil, notFound, fmt.Errorf("listFreshEveObjectsByID: %T: %w", objs, err)
 	}
 	return objs, notFound, nil
 }

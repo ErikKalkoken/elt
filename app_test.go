@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ErikKalkoken/eveauth"
+	"github.com/ErikKalkoken/go-set"
 	"github.com/antihax/goesi"
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
@@ -842,10 +843,10 @@ func TestApp_resolveIDsFromAPI(t *testing.T) {
 		{1000035, "Caldari Navy", "corporation"},
 		{1000180, "State Protectorate", "corporation"},
 	}
-	var generatedIDs []int32
+	var generatedIDs set.Set[int32]
 	for n := range 1010 {
 		id := int32(300_001 + n)
-		generatedIDs = append(generatedIDs, id)
+		generatedIDs.Add(id)
 		entities = append(entities, entity{id, fmt.Sprintf("Generated #%d", id), string(CategorySolarSystem)})
 	}
 
@@ -858,22 +859,22 @@ func TestApp_resolveIDsFromAPI(t *testing.T) {
 	)
 	client := goesi.NewAPIClient(nil, "")
 	t.Run("can resolve IDs", func(t *testing.T) {
-		oo, err := resolveIDsFromAPI(client, []int32{10000030, 1000035})
+		oo, err := resolveIDsFromAPI(client, set.Of[int32](10000030, 1000035))
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
 		got := extractIDs(oo)
-		want := []int32{10000030, 1000035}
-		assert.ElementsMatch(t, want, got)
+		want := set.Of[int32](10000030, 1000035)
+		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
 	})
 	t.Run("should resolve all IDs including invalid", func(t *testing.T) {
-		oo, err := resolveIDsFromAPI(client, []int32{10000030, 1000035, 666})
+		oo, err := resolveIDsFromAPI(client, set.Of[int32](10000030, 1000035, 666))
 		if !assert.NoError(t, err) {
 			t.Fatal(err)
 		}
 		got := extractIDs(oo)
-		want := []int32{10000030, 1000035, 666}
-		assert.ElementsMatch(t, want, got)
+		want := set.Of[int32](10000030, 1000035, 666)
+		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
 		var invalid EveEntity
 		for _, o := range oo {
 			if o.ID() == 666 {
@@ -891,7 +892,7 @@ func TestApp_resolveIDsFromAPI(t *testing.T) {
 		}
 		got := extractIDs(oo)
 		want := generatedIDs
-		assert.ElementsMatch(t, want, got)
+		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
 	})
 }
 
@@ -923,10 +924,10 @@ func makeUniverseNamesEndpoint(entities []entity) func(req *http.Request) (*http
 	}
 }
 
-func extractIDs[T EveObject](oo []T) []int32 {
-	var got []int32
+func extractIDs[T EveObject](oo []T) set.Set[int32] {
+	var got set.Set[int32]
 	for _, o := range oo {
-		got = append(got, o.ID())
+		got.Add(o.ID())
 	}
 	return got
 }

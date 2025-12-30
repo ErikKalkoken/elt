@@ -2,12 +2,14 @@
 
 package main
 
+import "github.com/ErikKalkoken/go-set"
+
 
 func (st *Storage) ListEveAlliance() ([]EveAlliance, error) {
     return listEveObjects[EveAlliance](st, bucketEveAlliance)
 }
 
-func (st *Storage) ListFreshEveAllianceByID(ids []int32) ([]EveAlliance, []int32, error) {
+func (st *Storage) ListFreshEveAllianceByID(ids set.Set[int32]) ([]EveAlliance, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveAlliance](st, bucketEveAlliance, ids)
 }
 
@@ -20,7 +22,7 @@ func (st *Storage) ListEveCategory() ([]EveCategory, error) {
     return listEveObjects[EveCategory](st, bucketEveCategory)
 }
 
-func (st *Storage) ListFreshEveCategoryByID(ids []int32) ([]EveCategory, []int32, error) {
+func (st *Storage) ListFreshEveCategoryByID(ids set.Set[int32]) ([]EveCategory, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveCategory](st, bucketEveCategory, ids)
 }
 
@@ -33,7 +35,7 @@ func (st *Storage) ListEveCharacter() ([]EveCharacter, error) {
     return listEveObjects[EveCharacter](st, bucketEveCharacter)
 }
 
-func (st *Storage) ListFreshEveCharacterByID(ids []int32) ([]EveCharacter, []int32, error) {
+func (st *Storage) ListFreshEveCharacterByID(ids set.Set[int32]) ([]EveCharacter, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveCharacter](st, bucketEveCharacter, ids)
 }
 
@@ -46,7 +48,7 @@ func (st *Storage) ListEveConstellation() ([]EveConstellation, error) {
     return listEveObjects[EveConstellation](st, bucketEveConstellation)
 }
 
-func (st *Storage) ListFreshEveConstellationByID(ids []int32) ([]EveConstellation, []int32, error) {
+func (st *Storage) ListFreshEveConstellationByID(ids set.Set[int32]) ([]EveConstellation, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveConstellation](st, bucketEveConstellation, ids)
 }
 
@@ -59,7 +61,7 @@ func (st *Storage) ListEveCorporation() ([]EveCorporation, error) {
     return listEveObjects[EveCorporation](st, bucketEveCorporation)
 }
 
-func (st *Storage) ListFreshEveCorporationByID(ids []int32) ([]EveCorporation, []int32, error) {
+func (st *Storage) ListFreshEveCorporationByID(ids set.Set[int32]) ([]EveCorporation, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveCorporation](st, bucketEveCorporation, ids)
 }
 
@@ -72,7 +74,7 @@ func (st *Storage) ListEveEntity() ([]EveEntity, error) {
     return listEveObjects[EveEntity](st, bucketEveEntity)
 }
 
-func (st *Storage) ListFreshEveEntityByID(ids []int32) ([]EveEntity, []int32, error) {
+func (st *Storage) ListFreshEveEntityByID(ids set.Set[int32]) ([]EveEntity, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveEntity](st, bucketEveEntity, ids)
 }
 
@@ -85,7 +87,7 @@ func (st *Storage) ListEveFaction() ([]EveFaction, error) {
     return listEveObjects[EveFaction](st, bucketEveFaction)
 }
 
-func (st *Storage) ListFreshEveFactionByID(ids []int32) ([]EveFaction, []int32, error) {
+func (st *Storage) ListFreshEveFactionByID(ids set.Set[int32]) ([]EveFaction, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveFaction](st, bucketEveFaction, ids)
 }
 
@@ -98,7 +100,7 @@ func (st *Storage) ListEveGroup() ([]EveGroup, error) {
     return listEveObjects[EveGroup](st, bucketEveGroup)
 }
 
-func (st *Storage) ListFreshEveGroupByID(ids []int32) ([]EveGroup, []int32, error) {
+func (st *Storage) ListFreshEveGroupByID(ids set.Set[int32]) ([]EveGroup, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveGroup](st, bucketEveGroup, ids)
 }
 
@@ -111,7 +113,7 @@ func (st *Storage) ListEveRegion() ([]EveRegion, error) {
     return listEveObjects[EveRegion](st, bucketEveRegion)
 }
 
-func (st *Storage) ListFreshEveRegionByID(ids []int32) ([]EveRegion, []int32, error) {
+func (st *Storage) ListFreshEveRegionByID(ids set.Set[int32]) ([]EveRegion, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveRegion](st, bucketEveRegion, ids)
 }
 
@@ -124,7 +126,7 @@ func (st *Storage) ListEveSolarSystem() ([]EveSolarSystem, error) {
     return listEveObjects[EveSolarSystem](st, bucketEveSolarSystem)
 }
 
-func (st *Storage) ListFreshEveSolarSystemByID(ids []int32) ([]EveSolarSystem, []int32, error) {
+func (st *Storage) ListFreshEveSolarSystemByID(ids set.Set[int32]) ([]EveSolarSystem, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveSolarSystem](st, bucketEveSolarSystem, ids)
 }
 
@@ -137,7 +139,7 @@ func (st *Storage) ListEveStation() ([]EveStation, error) {
     return listEveObjects[EveStation](st, bucketEveStation)
 }
 
-func (st *Storage) ListFreshEveStationByID(ids []int32) ([]EveStation, []int32, error) {
+func (st *Storage) ListFreshEveStationByID(ids set.Set[int32]) ([]EveStation, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveStation](st, bucketEveStation, ids)
 }
 
@@ -150,7 +152,7 @@ func (st *Storage) ListEveType() ([]EveType, error) {
     return listEveObjects[EveType](st, bucketEveType)
 }
 
-func (st *Storage) ListFreshEveTypeByID(ids []int32) ([]EveType, []int32, error) {
+func (st *Storage) ListFreshEveTypeByID(ids set.Set[int32]) ([]EveType, set.Set[int32], error) {
     return listFreshEveObjectsByID[EveType](st, bucketEveType, ids)
 }
 
