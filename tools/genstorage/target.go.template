@@ -2,12 +2,14 @@
 
 package {{ .Package }}
 
+import "github.com/ErikKalkoken/go-set"
+
 {{ range .Objects }}
 func (st *Storage) List{{ . }}() ([]{{ . }}, error) {
     return listEveObjects[{{ . }}](st, bucket{{ . }})
 }
 
-func (st *Storage) ListFresh{{ . }}ByID(ids []int32) ([]{{ . }}, []int32, error) {
+func (st *Storage) ListFresh{{ . }}ByID(ids set.Set[int32]) ([]{{ . }}, set.Set[int32], error) {
     return listFreshEveObjectsByID[{{ . }}](st, bucket{{ . }}, ids)
 }
 
