@@ -3,7 +3,7 @@ module github.com/ErikKalkoken/elt
 go 1.25.3
 
 require (
-	github.com/ErikKalkoken/eveauth v0.1.0
+	github.com/ErikKalkoken/eveauth v0.2.0
 	github.com/ErikKalkoken/go-set v0.3.0
 	github.com/adrg/xdg v0.5.3
 	github.com/antihax/goesi v0.0.0-20251103030832-a87832eae7ca

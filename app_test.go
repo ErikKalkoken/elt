@@ -698,9 +698,7 @@ func TestApp_Lookup(t *testing.T) {
 		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
 		err := a.Lookup([]string{fmt.Sprint(93330670), "Amamake"})
-		if !assert.NoError(t, err) {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		got := buf.String()
 		assert.Contains(t, got, fmt.Sprint(93330670))
 		assert.Contains(t, got, "Erik Kalkoken")
@@ -715,9 +713,7 @@ func TestApp_Lookup(t *testing.T) {
 		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
 		err := a.Lookup([]string{fmt.Sprint(666)})
-		if !assert.NoError(t, err) {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		got := buf.String()
 		assert.Contains(t, got, fmt.Sprint(666))
 		assert.Contains(t, got, "INVALID")
@@ -729,9 +725,7 @@ func TestApp_Lookup(t *testing.T) {
 		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
 		err := a.Lookup([]string{"xyz"})
-		if !assert.NoError(t, err) {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		got := buf.String()
 		assert.Contains(t, got, "xyz")
 		assert.Contains(t, got, "INVALID")
@@ -743,9 +737,7 @@ func TestApp_Lookup(t *testing.T) {
 		a := NewApp(nil, esiClient, st, &buf)
 		a.SpinnerDisabled = true
 		err := a.Lookup([]string{fmt.Sprint(0), fmt.Sprint(93330670)})
-		if !assert.NoError(t, err) {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		got := buf.String()
 		assert.Contains(t, got, fmt.Sprint(93330670))
 		assert.Contains(t, got, "Erik Kalkoken")
@@ -860,18 +852,14 @@ func TestApp_resolveIDsFromAPI(t *testing.T) {
 	client := goesi.NewAPIClient(nil, "")
 	t.Run("can resolve IDs", func(t *testing.T) {
 		oo, err := resolveIDsFromAPI(client, set.Of[int32](10000030, 1000035))
-		if !assert.NoError(t, err) {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		got := extractIDs(oo)
 		want := set.Of[int32](10000030, 1000035)
 		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
 	})
 	t.Run("should resolve all IDs including invalid", func(t *testing.T) {
 		oo, err := resolveIDsFromAPI(client, set.Of[int32](10000030, 1000035, 666))
-		if !assert.NoError(t, err) {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		got := extractIDs(oo)
 		want := set.Of[int32](10000030, 1000035, 666)
 		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
@@ -887,9 +875,7 @@ func TestApp_resolveIDsFromAPI(t *testing.T) {
 	})
 	t.Run("can resolve 1000+ IDs", func(t *testing.T) {
 		oo, err := resolveIDsFromAPI(client, generatedIDs)
-		if !assert.NoError(t, err) {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		got := extractIDs(oo)
 		want := generatedIDs
 		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)

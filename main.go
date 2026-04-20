@@ -177,9 +177,10 @@ Examples:
 
 	// eveauth
 	authClient, err := eveauth.NewClient(eveauth.Config{
-		ClientID: ssoClientID,
-		Port:     ssoPort,
-		Logger:   slog.Default(),
+		ApplicationName: appName,
+		ClientID:        ssoClientID,
+		Port:            ssoPort,
+		Logger:          slog.Default(),
 	})
 	if err != nil {
 		return err
