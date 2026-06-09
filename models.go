@@ -49,12 +49,12 @@ func (c EveEntityCategory) Display() string {
 
 type EveEntity struct {
 	Category  EveEntityCategory `json:"category"`
-	EntityID  int32             `json:"entity_id"`
+	EntityID  int64             `json:"entity_id"`
 	Name      string            `json:"name"`
 	Timestamp time.Time         `json:"timestamp"`
 }
 
-func (o EveEntity) ID() int32 {
+func (o EveEntity) ID() int64 {
 	return o.EntityID
 }
 
@@ -72,13 +72,13 @@ func (o EveEntity) IsValid() bool {
 }
 
 type EveAlliance struct {
-	AllianceID int32     `json:"alliance_id"`
+	AllianceID int64     `json:"alliance_id"`
 	Name       string    `json:"name"`
 	Ticker     string    `json:"ticker"`
 	Timestamp  time.Time `json:"timestamp"`
 }
 
-func (o EveAlliance) ID() int32 {
+func (o EveAlliance) ID() int64 {
 	return o.AllianceID
 }
 
@@ -91,13 +91,13 @@ func (o EveAlliance) IsValid() bool {
 }
 
 type EveCategory struct {
-	CategoryID int32     `json:"category_id"`
+	CategoryID int64     `json:"category_id"`
 	Name       string    `json:"name"`
 	Published  bool      `json:"published"`
 	Timestamp  time.Time `json:"timestamp"`
 }
 
-func (o EveCategory) ID() int32 {
+func (o EveCategory) ID() int64 {
 	return o.CategoryID
 }
 
@@ -110,14 +110,14 @@ func (o EveCategory) IsValid() bool {
 }
 
 type EveCharacter struct {
-	AllianceID    int32     `json:"alliance_id"`
-	CharacterID   int32     `json:"character_id"`
-	CorporationID int32     `json:"corporation_id"`
+	AllianceID    int64     `json:"alliance_id"`
+	CharacterID   int64     `json:"character_id"`
+	CorporationID int64     `json:"corporation_id"`
 	Name          string    `json:"name"`
 	Timestamp     time.Time `json:"timestamp"`
 }
 
-func (o EveCharacter) ID() int32 {
+func (o EveCharacter) ID() int64 {
 	return o.CharacterID
 }
 
@@ -137,13 +137,13 @@ func (o EveCharacter) IsValid() bool {
 }
 
 type EveConstellation struct {
-	ConstellationID int32     `json:"constellation_id"`
+	ConstellationID int64     `json:"constellation_id"`
 	Name            string    `json:"name"`
-	RegionID        int32     `json:"region_id"`
+	RegionID        int64     `json:"region_id"`
 	Timestamp       time.Time `json:"timestamp"`
 }
 
-func (o EveConstellation) ID() int32 {
+func (o EveConstellation) ID() int64 {
 	return o.ConstellationID
 }
 
@@ -156,16 +156,16 @@ func (o EveConstellation) IsValid() bool {
 }
 
 type EveCorporation struct {
-	AllianceID    int32     `json:"alliance_id"`
-	CeoID         int32     `json:"ceo_id"`
-	CorporationID int32     `json:"corporation_id"`
-	MemberCount   int32     `json:"member_count"`
+	AllianceID    int64     `json:"alliance_id"`
+	CeoID         int64     `json:"ceo_id"`
+	CorporationID int64     `json:"corporation_id"`
+	MemberCount   int64     `json:"member_count"`
 	Name          string    `json:"name"`
 	Ticker        string    `json:"ticker"`
 	Timestamp     time.Time `json:"timestamp"`
 }
 
-func (o EveCorporation) ID() int32 {
+func (o EveCorporation) ID() int64 {
 	return o.CorporationID
 }
 
@@ -185,14 +185,14 @@ func (o EveCorporation) IsValid() bool {
 }
 
 type EveFaction struct {
-	CorporationID        int32     `json:"corporation_id"`
-	FactionID            int32     `json:"faction_id"`
-	MilitiaCorporationID int32     `json:"militia_corporation_id"`
+	CorporationID        int64     `json:"corporation_id"`
+	FactionID            int64     `json:"faction_id"`
+	MilitiaCorporationID int64     `json:"militia_corporation_id"`
 	Name                 string    `json:"name"`
 	Timestamp            time.Time `json:"timestamp"`
 }
 
-func (o EveFaction) ID() int32 {
+func (o EveFaction) ID() int64 {
 	return o.FactionID
 }
 
@@ -205,14 +205,14 @@ func (o EveFaction) IsValid() bool {
 }
 
 type EveGroup struct {
-	CategoryID int32     `json:"category_id"`
-	GroupID    int32     `json:"group_id"`
+	CategoryID int64     `json:"category_id"`
+	GroupID    int64     `json:"group_id"`
 	Name       string    `json:"name"`
 	Published  bool      `json:"published"`
 	Timestamp  time.Time `json:"timestamp"`
 }
 
-func (o EveGroup) ID() int32 {
+func (o EveGroup) ID() int64 {
 	return o.GroupID
 }
 
@@ -226,11 +226,11 @@ func (o EveGroup) IsValid() bool {
 
 type EveRegion struct {
 	Name      string    `json:"name"`
-	RegionID  int32     `json:"region_id"`
+	RegionID  int64     `json:"region_id"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-func (o EveRegion) ID() int32 {
+func (o EveRegion) ID() int64 {
 	return o.RegionID
 }
 
@@ -243,14 +243,14 @@ func (o EveRegion) IsValid() bool {
 }
 
 type EveType struct {
-	GroupID   int32     `json:"group_id"`
+	GroupID   int64     `json:"group_id"`
 	Name      string    `json:"name"`
 	Published bool      `json:"published"`
 	Timestamp time.Time `json:"timestamp"`
-	TypeID    int32     `json:"type_id"`
+	TypeID    int64     `json:"type_id"`
 }
 
-func (o EveType) ID() int32 {
+func (o EveType) ID() int64 {
 	return o.TypeID
 }
 
@@ -263,14 +263,14 @@ func (o EveType) IsValid() bool {
 }
 
 type EveSolarSystem struct {
-	ConstellationID int32     `json:"constellation_id"`
+	ConstellationID int64     `json:"constellation_id"`
 	Name            string    `json:"name"`
-	Security        float32   `json:"security"`
-	SolarSystemID   int32     `json:"system_id"`
+	Security        float64   `json:"security"`
+	SolarSystemID   int64     `json:"system_id"`
 	Timestamp       time.Time `json:"timestamp"`
 }
 
-func (o EveSolarSystem) ID() int32 {
+func (o EveSolarSystem) ID() int64 {
 	return o.SolarSystemID
 }
 
@@ -284,14 +284,14 @@ func (o EveSolarSystem) IsValid() bool {
 
 type EveStation struct {
 	Name          string    `json:"name"`
-	OwnerID       int32     `json:"owner_id"`
-	SolarSystemID int32     `json:"system_id"`
-	StationID     int32     `json:"station_id"`
+	OwnerID       int64     `json:"owner_id"`
+	SolarSystemID int64     `json:"system_id"`
+	StationID     int64     `json:"station_id"`
 	Timestamp     time.Time `json:"timestamp"`
-	TypeID        int32     `json:"type_id"`
+	TypeID        int64     `json:"type_id"`
 }
 
-func (o EveStation) ID() int32 {
+func (o EveStation) ID() int64 {
 	return o.StationID
 }
 

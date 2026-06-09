@@ -35,7 +35,7 @@ func TestStorage_EveEntites(t *testing.T) {
 			o.Timestamp = time.Now().UTC()
 		}
 		if o.EntityID == 0 {
-			o.EntityID = int32(lastEntityID.Add(1))
+			o.EntityID = int64(lastEntityID.Add(1))
 		}
 		if o.Name == "" {
 			o.Name = fmt.Sprintf("Dummy #%d", o.EntityID)
@@ -56,7 +56,7 @@ func TestStorage_EveEntites(t *testing.T) {
 		o3 := createEveEntity()
 		ee, err := st.ListEveEntity()
 		require.NoError(t, err)
-		var got set.Set[int32]
+		var got set.Set[int64]
 		for _, x := range ee {
 			got.Add(x.EntityID)
 		}
@@ -69,15 +69,15 @@ func TestStorage_EveEntites(t *testing.T) {
 		createEveEntity(EveEntity{EntityID: 2})
 		createEveEntity(EveEntity{EntityID: 3})
 		createEveEntity(EveEntity{EntityID: 4, Timestamp: time.Now().Add(-1000 * time.Hour)})
-		ee, missing, err := st.ListFreshEveEntityByID(set.Of[int32](1, 3, 4, 5))
+		ee, missing, err := st.ListFreshEveEntityByID(set.Of[int64](1, 3, 4, 5))
 		require.NoError(t, err)
-		var got set.Set[int32]
+		var got set.Set[int64]
 		for _, x := range ee {
 			got.Add(x.ID())
 		}
-		want := set.Of[int32](1, 3)
+		want := set.Of[int64](1, 3)
 		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
-		wantMissing := set.Of[int32](4, 5)
+		wantMissing := set.Of[int64](4, 5)
 		assert.True(t, missing.Equal(wantMissing), "got %q, wanted %q", wantMissing, want)
 	})
 	t.Run("can list fresh entities by Name", func(t *testing.T) {
@@ -88,7 +88,7 @@ func TestStorage_EveEntites(t *testing.T) {
 		createEveEntity(EveEntity{Name: "alpha", Timestamp: time.Now().Add(-1000 * time.Hour)})
 		ee, err := st.ListFreshEveEntitiesByName([]string{"alpha"})
 		require.NoError(t, err)
-		var got set.Set[int32]
+		var got set.Set[int64]
 		for _, x := range ee {
 			got.Add(x.EntityID)
 		}
@@ -125,7 +125,7 @@ func TestStorage_EveTypes(t *testing.T) {
 			o.Timestamp = time.Now().UTC()
 		}
 		if o.TypeID == 0 {
-			o.TypeID = int32(lastTypeID.Add(1))
+			o.TypeID = int64(lastTypeID.Add(1))
 		}
 		if o.Name == "" {
 			o.Name = fmt.Sprintf("Type #%d", o.TypeID)
@@ -166,15 +166,15 @@ func TestStorage_EveTypes(t *testing.T) {
 		createEveType(EveType{TypeID: 1})
 		createEveType(EveType{TypeID: 2})
 		createEveType(EveType{TypeID: 3})
-		ee, missing, err := st.ListFreshEveTypeByID(set.Of[int32](1, 3, 4))
+		ee, missing, err := st.ListFreshEveTypeByID(set.Of[int64](1, 3, 4))
 		require.NoError(t, err)
-		var got set.Set[int32]
+		var got set.Set[int64]
 		for _, x := range ee {
 			got.Add(x.TypeID)
 		}
-		want := set.Of[int32](1, 3)
+		want := set.Of[int64](1, 3)
 		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
-		wantMissing := set.Of[int32](4)
+		wantMissing := set.Of[int64](4)
 		assert.True(t, missing.Equal(wantMissing), "got %q, wanted %q", wantMissing, want)
 	})
 }
