@@ -209,7 +209,7 @@ func (st *Storage) UpdateOrCreateEveToken(obj EveToken) error {
 }
 
 type EveObject interface {
-	ID() int32
+	ID() int64
 	IsStale() bool
 	IsValid() bool
 }
@@ -238,8 +238,8 @@ func listEveObjects[T EveObject](st *Storage, bucket string) ([]T, error) {
 	return objs, nil
 }
 
-func listFreshEveObjectsByID[T EveObject](st *Storage, bucket string, ids set.Set[int32]) ([]T, set.Set[int32], error) {
-	var notFound set.Set[int32]
+func listFreshEveObjectsByID[T EveObject](st *Storage, bucket string, ids set.Set[int64]) ([]T, set.Set[int64], error) {
+	var notFound set.Set[int64]
 	objs := make([]T, 0)
 	err := st.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))

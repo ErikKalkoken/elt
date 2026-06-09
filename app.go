@@ -17,12 +17,13 @@ import (
 
 	"github.com/ErikKalkoken/eveauth"
 	"github.com/ErikKalkoken/go-set"
-	"github.com/antihax/goesi"
-	"github.com/antihax/goesi/esi"
+	"github.com/fnt-eve/goesi-openapi"
+	"github.com/fnt-eve/goesi-openapi/esi"
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/renderer"
 	"github.com/olekukonko/tablewriter/tw"
 	"github.com/schollz/progressbar/v3"
+	"golang.org/x/oauth2"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -55,12 +56,12 @@ type App struct {
 	MaxWidth int
 
 	authClient AuthClient
-	esiClient  *goesi.APIClient
+	esiClient  *esi.APIClient
 	out        io.Writer
 	st         *Storage
 }
 
-func NewApp(authClient AuthClient, esiClient *goesi.APIClient, st *Storage, out io.Writer) App {
+func NewApp(authClient AuthClient, esiClient *esi.APIClient, st *Storage, out io.Writer) App {
 	a := App{
 		authClient: authClient,
 		esiClient:  esiClient,
@@ -134,7 +135,7 @@ func (a App) Authorize() error {
 func (a App) Lookup(args []string) error {
 	// Parse args
 	var (
-		ids     set.Set[int32]
+		ids     set.Set[int64]
 		invalid set.Set[int]
 		names   set.Set[string]
 	)
@@ -143,7 +144,7 @@ func (a App) Lookup(args []string) error {
 		if err != nil {
 			names.Add(arg)
 		} else {
-			id32 := int32(id)
+			id32 := int64(id)
 			if int(id32) != id || id == 0 {
 				invalid.Add(id)
 				continue
@@ -268,8 +269,11 @@ func (a App) Search(search string) error {
 			"station",
 		}
 	}
-	ctx := context.WithValue(context.Background(), goesi.ContextAccessToken, tok.AccessToken)
-	x, _, err := a.esiClient.ESI.SearchApi.GetCharactersCharacterIdSearch(ctx, categories, tok.CharacterID, search, nil)
+	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{
+		AccessToken: tok.AccessToken,
+	})
+	ctx := context.WithValue(context.Background(), goesi.ContextOAuth2, tokenSource)
+	x, _, err := a.esiClient.SearchAPI.GetCharactersCharacterIdSearch(ctx, int64(tok.CharacterID)).Search(search).Categories(categories).Execute()
 	if err != nil {
 		return err
 	}
@@ -301,7 +305,7 @@ func (a App) Search(search string) error {
 }
 
 func (a App) compileResults(entities []EveEntity, bar *progressbar.ProgressBar, totalCount int) error {
-	category2IDs := make(map[EveEntityCategory]set.Set[int32])
+	category2IDs := make(map[EveEntityCategory]set.Set[int64])
 	for _, e := range entities {
 		if a.EntityCategory != CategoryUndefined && a.EntityCategory != e.Category {
 			continue
@@ -437,12 +441,15 @@ func (a App) compileResults(entities []EveEntity, bar *progressbar.ProgressBar, 
 			continue
 		}
 		fmt.Fprintf(a.out, "%s (%d):\n", r.category.Display(), r.count)
-		r.table.Render()
+		err := r.table.Render()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (a App) resolveIDs(ids set.Set[int32]) ([]EveEntity, error) {
+func (a App) resolveIDs(ids set.Set[int64]) ([]EveEntity, error) {
 	entities1, unknownIDs, err := a.st.ListFreshEveEntityByID(ids)
 	if err != nil {
 		return nil, err
@@ -457,7 +464,7 @@ func (a App) resolveIDs(ids set.Set[int32]) ([]EveEntity, error) {
 	if err := a.st.UpdateOrCreateEveEntity(entities3); err != nil {
 		return nil, err
 	}
-	m := make(map[int32]EveEntity)
+	m := make(map[int64]EveEntity)
 	for _, e := range slices.Concat(entities1, entities2) {
 		m[e.EntityID] = e
 	}
@@ -468,7 +475,7 @@ func (a App) resolveIDs(ids set.Set[int32]) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func resolveIDsFromAPI(esiClient *goesi.APIClient, ids set.Set[int32]) ([]EveEntity, error) {
+func resolveIDsFromAPI(esiClient *esi.APIClient, ids set.Set[int64]) ([]EveEntity, error) {
 	entities := make([]EveEntity, 0)
 	for idsChunk := range slices.Chunk(slices.Collect(ids.All()), 1000) {
 		oo, err := resolveIDsFromAPI2(esiClient, idsChunk)
@@ -480,7 +487,7 @@ func resolveIDsFromAPI(esiClient *goesi.APIClient, ids set.Set[int32]) ([]EveEnt
 	return entities, nil
 }
 
-func resolveIDsFromAPI2(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, error) {
+func resolveIDsFromAPI2(esiClient *esi.APIClient, ids []int64) ([]EveEntity, error) {
 	if len(ids) == 0 {
 		return []EveEntity{}, nil
 	}
@@ -525,8 +532,8 @@ func resolveIDsFromAPI2(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, e
 	return entities, nil
 }
 
-func resolveIDsFromAPI3(esiClient *goesi.APIClient, ids []int32) ([]EveEntity, error) {
-	data, r, err := esiClient.ESI.UniverseApi.PostUniverseNames(context.Background(), ids, nil)
+func resolveIDsFromAPI3(esiClient *esi.APIClient, ids []int64) ([]EveEntity, error) {
+	data, r, err := esiClient.UniverseAPI.PostUniverseNames(context.Background()).RequestBody(ids).Execute()
 	if err != nil {
 		if r != nil && r.StatusCode == http.StatusNotFound {
 			return nil, ErrNotFound
@@ -567,7 +574,7 @@ func (a App) resolveNames(names set.Set[string]) ([]EveEntity, error) {
 	if names.Size() == 0 {
 		return []EveEntity{}, nil
 	}
-	data, r, err := a.esiClient.ESI.UniverseApi.PostUniverseIds(context.Background(), slices.Collect(names.All()), nil)
+	data, r, err := a.esiClient.UniverseAPI.PostUniverseIds(context.Background()).RequestBody(slices.Collect(names.All())).Execute()
 	if err != nil {
 		return nil, err
 	}
@@ -580,7 +587,7 @@ func (a App) resolveNames(names set.Set[string]) ([]EveEntity, error) {
 	}
 	found := make(map[string]bool)
 	entities := make([]EveEntity, 0)
-	addEntity := func(id int32, name string, category EveEntityCategory) {
+	addEntity := func(id int64, name string, category EveEntityCategory) {
 		if !matches[name] {
 			return
 		}
@@ -593,34 +600,34 @@ func (a App) resolveNames(names set.Set[string]) ([]EveEntity, error) {
 		found[name] = true
 	}
 	for _, o := range data.Agents {
-		addEntity(o.Id, o.Name, CategoryAgent)
+		addEntity(o.GetId(), o.GetName(), CategoryAgent)
 	}
 	for _, o := range data.Alliances {
-		addEntity(o.Id, o.Name, CategoryAlliance)
+		addEntity(o.GetId(), o.GetName(), CategoryAlliance)
 	}
 	for _, o := range data.Characters {
-		addEntity(o.Id, o.Name, CategoryCharacter)
+		addEntity(o.GetId(), o.GetName(), CategoryCharacter)
 	}
 	for _, o := range data.Constellations {
-		addEntity(o.Id, o.Name, CategoryConstellation)
+		addEntity(o.GetId(), o.GetName(), CategoryConstellation)
 	}
 	for _, o := range data.Corporations {
-		addEntity(o.Id, o.Name, CategoryCorporation)
+		addEntity(o.GetId(), o.GetName(), CategoryCorporation)
 	}
 	for _, o := range data.Factions {
-		addEntity(o.Id, o.Name, CategoryFaction)
+		addEntity(o.GetId(), o.GetName(), CategoryFaction)
 	}
 	for _, o := range data.InventoryTypes {
-		addEntity(o.Id, o.Name, CategoryInventoryType)
+		addEntity(o.GetId(), o.GetName(), CategoryInventoryType)
 	}
 	for _, o := range data.Regions {
-		addEntity(o.Id, o.Name, CategoryRegion)
+		addEntity(o.GetId(), o.GetName(), CategoryRegion)
 	}
 	for _, o := range data.Stations {
-		addEntity(o.Id, o.Name, CategoryStation)
+		addEntity(o.GetId(), o.GetName(), CategoryStation)
 	}
 	for _, o := range data.Systems {
-		addEntity(o.Id, o.Name, CategorySolarSystem)
+		addEntity(o.GetId(), o.GetName(), CategorySolarSystem)
 	}
 	for n := range names.All() {
 		if found[n] {
@@ -641,12 +648,12 @@ func (a App) resolveNames(names set.Set[string]) ([]EveEntity, error) {
 	return entities, nil
 }
 
-func (a App) buildCharacterTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildCharacterTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	characters, err := a.fetchCharacters(ids)
 	if err != nil {
 		return nil, err
 	}
-	var entityIDs set.Set[int32]
+	var entityIDs set.Set[int64]
 	for _, o := range characters {
 		entityIDs.Add(o.CorporationID)
 		if o.AllianceID != 0 {
@@ -669,16 +676,16 @@ func (a App) buildCharacterTable(ids set.Set[int32]) (*tablewriter.Table, error)
 	return t, nil
 }
 
-func (a App) fetchCharacters(ids set.Set[int32]) ([]EveCharacter, error) {
+func (a App) fetchCharacters(ids set.Set[int64]) ([]EveCharacter, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveCharacterByID,
-		func(id int32) (esi.GetCharactersCharacterIdOk, *http.Response, error) {
-			return a.esiClient.ESI.CharacterApi.GetCharactersCharacterId(context.Background(), id, nil)
+		func(id int64) (*esi.CharactersDetail, *http.Response, error) {
+			return a.esiClient.CharacterAPI.GetCharactersCharacterId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetCharactersCharacterIdOk) EveCharacter {
+		func(id int64, x *esi.CharactersDetail) EveCharacter {
 			return EveCharacter{
-				AllianceID:    x.AllianceId,
+				AllianceID:    x.GetAllianceId(),
 				CharacterID:   id,
 				CorporationID: x.CorporationId,
 				Name:          x.Name,
@@ -690,12 +697,12 @@ func (a App) fetchCharacters(ids set.Set[int32]) ([]EveCharacter, error) {
 	return oo, err
 }
 
-func (a App) buildCorporationTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildCorporationTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	corporations, err := a.fetchCorporations(ids)
 	if err != nil {
 		return nil, err
 	}
-	var entityIDs set.Set[int32]
+	var entityIDs set.Set[int64]
 	for _, o := range corporations {
 		if o.AllianceID != 0 {
 			entityIDs.Add(o.AllianceID)
@@ -716,16 +723,16 @@ func (a App) buildCorporationTable(ids set.Set[int32]) (*tablewriter.Table, erro
 	return t, err
 }
 
-func (a App) fetchCorporations(ids set.Set[int32]) ([]EveCorporation, error) {
+func (a App) fetchCorporations(ids set.Set[int64]) ([]EveCorporation, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveCorporationByID,
-		func(id int32) (esi.GetCorporationsCorporationIdOk, *http.Response, error) {
-			return a.esiClient.ESI.CorporationApi.GetCorporationsCorporationId(context.Background(), id, nil)
+		func(id int64) (*esi.CorporationsDetail, *http.Response, error) {
+			return a.esiClient.CorporationAPI.GetCorporationsCorporationId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetCorporationsCorporationIdOk) EveCorporation {
+		func(id int64, x *esi.CorporationsDetail) EveCorporation {
 			return EveCorporation{
-				AllianceID:    x.AllianceId,
+				AllianceID:    x.GetAllianceId(),
 				CeoID:         x.CeoId,
 				CorporationID: id,
 				MemberCount:   x.MemberCount,
@@ -739,7 +746,7 @@ func (a App) fetchCorporations(ids set.Set[int32]) ([]EveCorporation, error) {
 	return oo, err
 }
 
-func (a App) buildAllianceTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildAllianceTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	alliances, err := a.fetchAlliance(ids)
 	if err != nil {
 		return nil, err
@@ -754,14 +761,14 @@ func (a App) buildAllianceTable(ids set.Set[int32]) (*tablewriter.Table, error) 
 	return t, nil
 }
 
-func (a App) fetchAlliance(ids set.Set[int32]) ([]EveAlliance, error) {
+func (a App) fetchAlliance(ids set.Set[int64]) ([]EveAlliance, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveAllianceByID,
-		func(id int32) (esi.GetAlliancesAllianceIdOk, *http.Response, error) {
-			return a.esiClient.ESI.AllianceApi.GetAlliancesAllianceId(context.Background(), id, nil)
+		func(id int64) (*esi.AllianceDetail, *http.Response, error) {
+			return a.esiClient.AllianceAPI.GetAlliancesAllianceId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetAlliancesAllianceIdOk) EveAlliance {
+		func(id int64, x *esi.AllianceDetail) EveAlliance {
 			return EveAlliance{
 				AllianceID: id,
 				Name:       x.Name,
@@ -774,12 +781,12 @@ func (a App) fetchAlliance(ids set.Set[int32]) ([]EveAlliance, error) {
 	return oo, err
 }
 
-func (a App) buildFactionTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildFactionTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	factions, err := a.fetchFactions(ids)
 	if err != nil {
 		return nil, err
 	}
-	var entityIDs set.Set[int32]
+	var entityIDs set.Set[int64]
 	for _, o := range factions {
 		if o.CorporationID != 0 {
 			entityIDs.Add(o.CorporationID)
@@ -803,22 +810,22 @@ func (a App) buildFactionTable(ids set.Set[int32]) (*tablewriter.Table, error) {
 	return t, nil
 }
 
-func (a App) fetchFactions(ids set.Set[int32]) ([]EveFaction, error) {
+func (a App) fetchFactions(ids set.Set[int64]) ([]EveFaction, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveFactionByID,
-		func(id int32) ([]esi.GetUniverseFactions200Ok, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseFactions(context.Background(), nil)
+		func(id int64) ([]esi.UniverseFactionsGetInner, *http.Response, error) {
+			return a.esiClient.UniverseAPI.GetUniverseFactions(context.Background()).Execute()
 		},
-		func(id int32, xx []esi.GetUniverseFactions200Ok) EveFaction {
+		func(id int64, xx []esi.UniverseFactionsGetInner) EveFaction {
 			for _, x := range xx {
 				if x.FactionId != id {
 					continue
 				}
 				return EveFaction{
 					FactionID:            id,
-					CorporationID:        x.CorporationId,
-					MilitiaCorporationID: x.MilitiaCorporationId,
+					CorporationID:        x.GetCorporationId(),
+					MilitiaCorporationID: x.GetMilitiaCorporationId(),
 					Name:                 x.Name,
 					Timestamp:            now(),
 				}
@@ -834,12 +841,12 @@ func (a App) fetchFactions(ids set.Set[int32]) ([]EveFaction, error) {
 	return oo, err
 }
 
-func (a App) buildStationTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildStationTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	stations, err := a.fetchStations(ids)
 	if err != nil {
 		return nil, err
 	}
-	var entityIDs set.Set[int32]
+	var entityIDs set.Set[int64]
 	for _, et := range stations {
 		entityIDs.Add(et.OwnerID, et.SolarSystemID, et.TypeID)
 	}
@@ -861,17 +868,17 @@ func (a App) buildStationTable(ids set.Set[int32]) (*tablewriter.Table, error) {
 	return t, nil
 }
 
-func (a App) fetchStations(ids set.Set[int32]) ([]EveStation, error) {
+func (a App) fetchStations(ids set.Set[int64]) ([]EveStation, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveStationByID,
-		func(id int32) (esi.GetUniverseStationsStationIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseStationsStationId(context.Background(), id, nil)
+		func(id int64) (*esi.UniverseStationsStationIdGet, *http.Response, error) {
+			return a.esiClient.UniverseAPI.GetUniverseStationsStationId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetUniverseStationsStationIdOk) EveStation {
+		func(id int64, x *esi.UniverseStationsStationIdGet) EveStation {
 			return EveStation{
 				Name:          x.Name,
-				OwnerID:       x.Owner,
+				OwnerID:       x.GetOwner(),
 				SolarSystemID: x.SystemId,
 				StationID:     id,
 				Timestamp:     now(),
@@ -883,12 +890,12 @@ func (a App) fetchStations(ids set.Set[int32]) ([]EveStation, error) {
 	return oo, err
 }
 
-func (a App) buildTypeTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildTypeTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	types, err := a.fetchTypes(ids)
 	if err != nil {
 		return nil, err
 	}
-	var groupIDs set.Set[int32]
+	var groupIDs set.Set[int64]
 	for _, et := range types {
 		groupIDs.Add(et.GroupID)
 	}
@@ -897,7 +904,7 @@ func (a App) buildTypeTable(ids set.Set[int32]) (*tablewriter.Table, error) {
 		return nil, err
 	}
 	groupLookup := makeLookupMap(groups)
-	var categoryIDs set.Set[int32]
+	var categoryIDs set.Set[int64]
 	for _, eg := range groups {
 		categoryIDs.Add(eg.CategoryID)
 	}
@@ -918,14 +925,14 @@ func (a App) buildTypeTable(ids set.Set[int32]) (*tablewriter.Table, error) {
 	return t, nil
 }
 
-func (a App) fetchTypes(ids set.Set[int32]) ([]EveType, error) {
+func (a App) fetchTypes(ids set.Set[int64]) ([]EveType, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveTypeByID,
-		func(id int32) (esi.GetUniverseTypesTypeIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseTypesTypeId(context.Background(), id, nil)
+		func(id int64) (*esi.UniverseTypesTypeIdGet, *http.Response, error) {
+			return a.esiClient.UniverseAPI.GetUniverseTypesTypeId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetUniverseTypesTypeIdOk) EveType {
+		func(id int64, x *esi.UniverseTypesTypeIdGet) EveType {
 			return EveType{
 				GroupID:   x.GroupId,
 				TypeID:    id,
@@ -939,14 +946,14 @@ func (a App) fetchTypes(ids set.Set[int32]) ([]EveType, error) {
 	return oo, err
 }
 
-func (a App) fetchCategories(ids set.Set[int32]) ([]EveCategory, error) {
+func (a App) fetchCategories(ids set.Set[int64]) ([]EveCategory, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveCategoryByID,
-		func(id int32) (esi.GetUniverseCategoriesCategoryIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseCategoriesCategoryId(context.Background(), id, nil)
+		func(id int64) (*esi.UniverseCategoriesCategoryIdGet, *http.Response, error) {
+			return a.esiClient.UniverseAPI.GetUniverseCategoriesCategoryId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetUniverseCategoriesCategoryIdOk) EveCategory {
+		func(id int64, x *esi.UniverseCategoriesCategoryIdGet) EveCategory {
 			return EveCategory{
 				CategoryID: id,
 				Name:       x.Name,
@@ -959,14 +966,14 @@ func (a App) fetchCategories(ids set.Set[int32]) ([]EveCategory, error) {
 	return oo, err
 }
 
-func (a App) fetchGroups(ids set.Set[int32]) ([]EveGroup, error) {
+func (a App) fetchGroups(ids set.Set[int64]) ([]EveGroup, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveGroupByID,
-		func(id int32) (esi.GetUniverseGroupsGroupIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseGroupsGroupId(context.Background(), id, nil)
+		func(id int64) (*esi.UniverseGroupsGroupIdGet, *http.Response, error) {
+			return a.esiClient.UniverseAPI.GetUniverseGroupsGroupId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetUniverseGroupsGroupIdOk) EveGroup {
+		func(id int64, x *esi.UniverseGroupsGroupIdGet) EveGroup {
 			return EveGroup{
 				CategoryID: x.CategoryId,
 				GroupID:    id,
@@ -980,12 +987,12 @@ func (a App) fetchGroups(ids set.Set[int32]) ([]EveGroup, error) {
 	return oo, err
 }
 
-func (a App) buildSolarSystemTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildSolarSystemTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	types, err := a.fetchSolarSystems(ids)
 	if err != nil {
 		return nil, err
 	}
-	var constellationIDs set.Set[int32]
+	var constellationIDs set.Set[int64]
 	for _, o := range types {
 		constellationIDs.Add(o.ConstellationID)
 	}
@@ -994,7 +1001,7 @@ func (a App) buildSolarSystemTable(ids set.Set[int32]) (*tablewriter.Table, erro
 		return nil, err
 	}
 	constellationLookup := makeLookupMap(constellations)
-	var regionIDs set.Set[int32]
+	var regionIDs set.Set[int64]
 	for _, o := range constellations {
 		regionIDs.Add(o.RegionID)
 	}
@@ -1015,18 +1022,18 @@ func (a App) buildSolarSystemTable(ids set.Set[int32]) (*tablewriter.Table, erro
 	return t, nil
 }
 
-func (a App) fetchSolarSystems(ids set.Set[int32]) ([]EveSolarSystem, error) {
+func (a App) fetchSolarSystems(ids set.Set[int64]) ([]EveSolarSystem, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveSolarSystemByID,
-		func(id int32) (esi.GetUniverseSystemsSystemIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseSystemsSystemId(context.Background(), id, nil)
+		func(id int64) (*esi.UniverseSystemsSystemIdGet, *http.Response, error) {
+			return a.esiClient.UniverseAPI.GetUniverseSystemsSystemId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetUniverseSystemsSystemIdOk) EveSolarSystem {
+		func(id int64, x *esi.UniverseSystemsSystemIdGet) EveSolarSystem {
 			return EveSolarSystem{
 				ConstellationID: x.ConstellationId,
 				Name:            x.Name,
-				Security:        x.SecurityStatus,
+				Security:        x.GetSecurityStatus(),
 				SolarSystemID:   id,
 				Timestamp:       now(),
 			}
@@ -1036,12 +1043,12 @@ func (a App) fetchSolarSystems(ids set.Set[int32]) ([]EveSolarSystem, error) {
 	return oo, err
 }
 
-func (a App) buildConstellationTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildConstellationTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	constellations, err := a.fetchConstellations(ids)
 	if err != nil {
 		return nil, err
 	}
-	var regionIDs set.Set[int32]
+	var regionIDs set.Set[int64]
 	for _, o := range constellations {
 		regionIDs.Add(o.RegionID)
 	}
@@ -1060,14 +1067,14 @@ func (a App) buildConstellationTable(ids set.Set[int32]) (*tablewriter.Table, er
 	return t, nil
 }
 
-func (a App) fetchConstellations(ids set.Set[int32]) ([]EveConstellation, error) {
+func (a App) fetchConstellations(ids set.Set[int64]) ([]EveConstellation, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveConstellationByID,
-		func(id int32) (esi.GetUniverseConstellationsConstellationIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseConstellationsConstellationId(context.Background(), id, nil)
+		func(id int64) (*esi.UniverseConstellationsConstellationIdGet, *http.Response, error) {
+			return a.esiClient.UniverseAPI.GetUniverseConstellationsConstellationId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetUniverseConstellationsConstellationIdOk) EveConstellation {
+		func(id int64, x *esi.UniverseConstellationsConstellationIdGet) EveConstellation {
 			return EveConstellation{
 				ConstellationID: id,
 				RegionID:        x.RegionId,
@@ -1080,7 +1087,7 @@ func (a App) fetchConstellations(ids set.Set[int32]) ([]EveConstellation, error)
 	return oo, err
 }
 
-func (a App) buildRegionTable(ids set.Set[int32]) (*tablewriter.Table, error) {
+func (a App) buildRegionTable(ids set.Set[int64]) (*tablewriter.Table, error) {
 	regions, err := a.fetchRegions(ids)
 	if err != nil {
 		return nil, err
@@ -1096,14 +1103,14 @@ func (a App) buildRegionTable(ids set.Set[int32]) (*tablewriter.Table, error) {
 	return t, nil
 }
 
-func (a App) fetchRegions(ids set.Set[int32]) ([]EveRegion, error) {
+func (a App) fetchRegions(ids set.Set[int64]) ([]EveRegion, error) {
 	oo, _, err := fetchObjects(
 		ids,
 		a.st.ListFreshEveRegionByID,
-		func(id int32) (esi.GetUniverseRegionsRegionIdOk, *http.Response, error) {
-			return a.esiClient.ESI.UniverseApi.GetUniverseRegionsRegionId(context.Background(), id, nil)
+		func(id int64) (*esi.UniverseRegionsRegionIdGet, *http.Response, error) {
+			return a.esiClient.UniverseAPI.GetUniverseRegionsRegionId(context.Background(), id).Execute()
 		},
-		func(id int32, x esi.GetUniverseRegionsRegionIdOk) EveRegion {
+		func(id int64, x *esi.UniverseRegionsRegionIdGet) EveRegion {
 			return EveRegion{
 				RegionID:  id,
 				Name:      x.Name,
@@ -1115,15 +1122,15 @@ func (a App) fetchRegions(ids set.Set[int32]) ([]EveRegion, error) {
 	return oo, err
 }
 
-func idOrEmpty(id int32) string {
+func idOrEmpty(id int64) string {
 	if id == 0 {
 		return ""
 	}
 	return strconv.Itoa(int(id))
 }
 
-func makeLookupMap[T EveObject](objs []T) map[int32]T {
-	m := make(map[int32]T)
+func makeLookupMap[T EveObject](objs []T) map[int64]T {
+	m := make(map[int64]T)
 	for _, o := range objs {
 		m[o.ID()] = o
 	}
@@ -1133,17 +1140,17 @@ func makeLookupMap[T EveObject](objs []T) map[int32]T {
 // fetchObjects fetches and returns eve objects for the given ids.
 // It returns objects from storage when found or otherwise fetches them from the API.
 // It also returns a slice of invalid IDs for objects which could not be found.
-func fetchObjects[X any, Y EveObject](ids set.Set[int32], fetcherStorage func(set.Set[int32]) ([]Y, set.Set[int32], error), fetcherAPI func(id int32) (X, *http.Response, error), mapper func(id int32, x X) Y, storer func([]Y) error) ([]Y, set.Set[int32], error) {
+func fetchObjects[X any, Y EveObject](ids set.Set[int64], fetcherStorage func(set.Set[int64]) ([]Y, set.Set[int64], error), fetcherAPI func(id int64) (X, *http.Response, error), mapper func(id int64, x X) Y, storer func([]Y) error) ([]Y, set.Set[int64], error) {
 	wrapErr := func(err error) error {
 		var z Y
 		return fmt.Errorf("fetch objects %T: %v: %w", z, ids, err)
 	}
 	objsLocal, missing, err := fetcherStorage(ids)
 	if err != nil {
-		return nil, set.Set[int32]{}, wrapErr(err)
+		return nil, set.Set[int64]{}, wrapErr(err)
 	}
 	objsRemote := make([]Y, missing.Size())
-	invalidIDs := make([]int32, missing.Size())
+	invalidIDs := make([]int64, missing.Size())
 	g := new(errgroup.Group)
 	for i, id := range slices.Collect(missing.All()) {
 		g.Go(func() error {
@@ -1160,7 +1167,7 @@ func fetchObjects[X any, Y EveObject](ids set.Set[int32], fetcherStorage func(se
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return nil, set.Set[int32]{}, wrapErr(err)
+		return nil, set.Set[int64]{}, wrapErr(err)
 	}
 	if len(objsRemote) > 0 {
 		oo := slices.DeleteFunc(objsRemote, func(x Y) bool {
@@ -1168,11 +1175,11 @@ func fetchObjects[X any, Y EveObject](ids set.Set[int32], fetcherStorage func(se
 		})
 		err := storer(oo)
 		if err != nil {
-			return nil, set.Set[int32]{}, wrapErr(err)
+			return nil, set.Set[int64]{}, wrapErr(err)
 		}
 	}
 	invalid2 := set.Of(invalidIDs...)
-	invalid2.DeleteFunc(func(x int32) bool {
+	invalid2.DeleteFunc(func(x int64) bool {
 		return x == 0
 	})
 	objs := slices.Concat(objsLocal, objsRemote)

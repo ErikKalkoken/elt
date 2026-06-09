@@ -9,7 +9,7 @@ func (st *Storage) List{{ . }}() ([]{{ . }}, error) {
     return listEveObjects[{{ . }}](st, bucket{{ . }})
 }
 
-func (st *Storage) ListFresh{{ . }}ByID(ids set.Set[int32]) ([]{{ . }}, set.Set[int32], error) {
+func (st *Storage) ListFresh{{ . }}ByID(ids set.Set[int64]) ([]{{ . }}, set.Set[int64], error) {
     return listFreshEveObjectsByID[{{ . }}](st, bucket{{ . }}, ids)
 }
 

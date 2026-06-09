@@ -13,7 +13,7 @@ import (
 
 	"github.com/ErikKalkoken/eveauth"
 	"github.com/ErikKalkoken/go-set"
-	"github.com/antihax/goesi"
+	"github.com/fnt-eve/goesi-openapi"
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ import (
 )
 
 type entity struct {
-	ID       int32  `json:"id"`
+	ID       int64  `json:"id"`
 	Name     string `json:"name"`
 	Category string `json:"category"`
 }
@@ -95,7 +95,7 @@ func TestApp_Lookup(t *testing.T) {
 		{1000023, "Expert Distribution", "corporation"},
 	}
 	entities := slices.Concat(primaryEntities, secondaryEntities)
-	entityLookup := make(map[int32]entity)
+	entityLookup := make(map[int64]entity)
 	for _, o := range entities {
 		entityLookup[o.ID] = o
 	}
@@ -105,13 +105,13 @@ func TestApp_Lookup(t *testing.T) {
 
 	httpmock.RegisterResponder(
 		"POST",
-		`=~^https://esi\.evetech\.net/v\d+/universe/names/`,
+		"https://esi.evetech.net/universe/names",
 		makeUniverseNamesEndpoint(entities),
 	)
 
 	httpmock.RegisterResponder(
 		"POST",
-		`=~^https://esi\.evetech\.net/v\d+/universe/ids/`,
+		"https://esi.evetech.net/universe/ids",
 		func(req *http.Request) (*http.Response, error) {
 			var names []string
 			if err := json.NewDecoder(req.Body).Decode(&names); err != nil {
@@ -167,7 +167,7 @@ func TestApp_Lookup(t *testing.T) {
 	}
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/alliances/(\d+)/`,
+		`=~^https://esi\.evetech\.net/alliances/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				99013305: {
@@ -184,7 +184,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/categories/(\d+)/`,
+		`=~^https://esi\.evetech\.net/universe/categories/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				3: {
@@ -202,7 +202,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/corporations/(\d+)/`,
+		`=~^https://esi\.evetech\.net/corporations/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				1000035: {
@@ -251,7 +251,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/characters/(\d+)/`,
+		`=~^https://esi\.evetech\.net/characters/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				3008588: {
@@ -282,7 +282,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/constellations/(\d+)/`,
+		`=~^https://esi\.evetech\.net/universe/constellations/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				20000372: {
@@ -309,7 +309,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/factions/`,
+		`=~^https://esi\.evetech\.net/universe/factions`,
 		httpmock.NewJsonResponderOrPanic(200, []map[string]any{
 			{
 				"corporation_id":         1000035,
@@ -327,7 +327,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/groups/(\d+)/`,
+		`=~^https://esi\.evetech\.net/universe/groups/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				15: {
@@ -407,7 +407,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/regions/(\d+)/`,
+		`=~^https://esi\.evetech\.net/universe/regions/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				10000030: {
@@ -435,7 +435,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/systems/(\d+)/`,
+		`=~^https://esi\.evetech\.net/universe/systems/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				30002537: {
@@ -553,7 +553,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/stations/(\d+)/`,
+		`=~^https://esi\.evetech\.net/universe/stations/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				60002590: {
@@ -593,7 +593,7 @@ func TestApp_Lookup(t *testing.T) {
 	)
 	httpmock.RegisterResponder(
 		"GET",
-		`=~^https://esi\.evetech\.net/v\d+/universe/types/(\d+)/`,
+		`=~^https://esi\.evetech\.net/universe/types/(\d+)`,
 		func(req *http.Request) (*http.Response, error) {
 			data := map[int64]map[string]any{
 				1531: {
@@ -651,7 +651,7 @@ func TestApp_Lookup(t *testing.T) {
 	if err := st.Init(); err != nil {
 		t.Fatal(err)
 	}
-	esiClient := goesi.NewAPIClient(nil, "")
+	esiClient := goesi.NewESIClientWithOptions(http.DefaultClient, goesi.ClientOptions{})
 
 	for _, o := range primaryEntities {
 		if o.Category == "agent" {
@@ -783,8 +783,8 @@ func TestApp_Search(t *testing.T) {
 		defer httpmock.DeactivateAndReset()
 		httpmock.RegisterResponder(
 			"GET",
-			`=~^https://esi\.evetech\.net/v\d+/characters/(\d+)/search`,
-			httpmock.NewJsonResponderOrPanic(200, map[string][]int32{
+			`=~^https://esi\.evetech\.net/characters/(\d+)/search`,
+			httpmock.NewJsonResponderOrPanic(200, map[string][]int64{
 				"inventory_type": {603},
 			}),
 		)
@@ -818,7 +818,7 @@ func TestApp_Search(t *testing.T) {
 			TypeID:    603,
 		}})
 		require.NoError(t, err)
-		client := goesi.NewAPIClient(nil, "")
+		client := goesi.NewESIClientWithOptions(http.DefaultClient, goesi.ClientOptions{})
 		a := NewApp(nil, client, st, &buf)
 		a.SpinnerDisabled = true
 		err = a.Search("merlin")
@@ -835,9 +835,9 @@ func TestApp_resolveIDsFromAPI(t *testing.T) {
 		{1000035, "Caldari Navy", "corporation"},
 		{1000180, "State Protectorate", "corporation"},
 	}
-	var generatedIDs set.Set[int32]
+	var generatedIDs set.Set[int64]
 	for n := range 1010 {
-		id := int32(300_001 + n)
+		id := int64(300_001 + n)
 		generatedIDs.Add(id)
 		entities = append(entities, entity{id, fmt.Sprintf("Generated #%d", id), string(CategorySolarSystem)})
 	}
@@ -846,22 +846,22 @@ func TestApp_resolveIDsFromAPI(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 	httpmock.RegisterResponder(
 		"POST",
-		`=~^https://esi\.evetech\.net/v\d+/universe/names/`,
+		`=~^https://esi\.evetech\.net/universe/names`,
 		makeUniverseNamesEndpoint(entities),
 	)
-	client := goesi.NewAPIClient(nil, "")
+	client := goesi.NewESIClientWithOptions(http.DefaultClient, goesi.ClientOptions{})
 	t.Run("can resolve IDs", func(t *testing.T) {
-		oo, err := resolveIDsFromAPI(client, set.Of[int32](10000030, 1000035))
+		oo, err := resolveIDsFromAPI(client, set.Of[int64](10000030, 1000035))
 		require.NoError(t, err)
 		got := extractIDs(oo)
-		want := set.Of[int32](10000030, 1000035)
+		want := set.Of[int64](10000030, 1000035)
 		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
 	})
 	t.Run("should resolve all IDs including invalid", func(t *testing.T) {
-		oo, err := resolveIDsFromAPI(client, set.Of[int32](10000030, 1000035, 666))
+		oo, err := resolveIDsFromAPI(client, set.Of[int64](10000030, 1000035, 666))
 		require.NoError(t, err)
 		got := extractIDs(oo)
-		want := set.Of[int32](10000030, 1000035, 666)
+		want := set.Of[int64](10000030, 1000035, 666)
 		assert.True(t, got.Equal(want), "got %q, wanted %q", got, want)
 		var invalid EveEntity
 		for _, o := range oo {
@@ -884,12 +884,12 @@ func TestApp_resolveIDsFromAPI(t *testing.T) {
 
 // makeUniverseNamesEndpoint creates a stub for the universe names endpoint.
 func makeUniverseNamesEndpoint(entities []entity) func(req *http.Request) (*http.Response, error) {
-	entityLookup := make(map[int32]entity)
+	entityLookup := make(map[int64]entity)
 	for _, o := range entities {
 		entityLookup[o.ID] = o
 	}
 	return func(req *http.Request) (*http.Response, error) {
-		var ids []int32
+		var ids []int64
 		if err := json.NewDecoder(req.Body).Decode(&ids); err != nil {
 			return httpmock.NewStringResponse(400, ""), nil
 		}
@@ -910,8 +910,8 @@ func makeUniverseNamesEndpoint(entities []entity) func(req *http.Request) (*http
 	}
 }
 
-func extractIDs[T EveObject](oo []T) set.Set[int32] {
-	var got set.Set[int32]
+func extractIDs[T EveObject](oo []T) set.Set[int64] {
+	var got set.Set[int64]
 	for _, o := range oo {
 		got.Add(o.ID())
 	}

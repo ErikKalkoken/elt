@@ -15,7 +15,7 @@ import (
 
 	"github.com/ErikKalkoken/eveauth"
 	"github.com/adrg/xdg"
-	"github.com/antihax/goesi"
+	"github.com/fnt-eve/goesi-openapi"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/spf13/pflag"
 	bolt "go.etcd.io/bbolt"
@@ -39,7 +39,7 @@ const (
 var ErrNotFound = errors.New("not found")
 
 // Version is overwritten in the CI release process.
-var Version = "0.6.0"
+var Version = "0.7.0"
 
 func main() {
 	exitWithError := func(err error) {
@@ -188,7 +188,9 @@ Examples:
 
 	// goesi
 	userAgent := fmt.Sprintf("%s/%s (%s; +%s)", appName, Version, esiUserAgentEmail, sourceURL)
-	esiClient := goesi.NewAPIClient(rhc.StandardClient(), userAgent)
+	esiClient := goesi.NewESIClientWithOptions(rhc.StandardClient(), goesi.ClientOptions{
+		UserAgent: userAgent,
+	})
 
 	a := NewApp(authClient, esiClient, st, stdout)
 	a.MaxWidth = *maxWidth
