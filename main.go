@@ -41,6 +41,13 @@ var ErrNotFound = errors.New("not found")
 // Version is overwritten in the CI release process.
 var Version = "0.7.0"
 
+var logLevelMap = map[string]slog.Level{
+	"debug": slog.LevelDebug,
+	"info":  slog.LevelInfo,
+	"warn":  slog.LevelWarn,
+	"error": slog.LevelError,
+}
+
 func main() {
 	exitWithError := func(err error) {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
@@ -66,13 +73,33 @@ func main() {
 
 func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath, logFilePath string) error {
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
+
+	kindValues := []string{}
+	for _, x := range []EveEntityCategory{
+		CategoryAgent,
+		CategoryAlliance,
+		CategoryCharacter,
+		CategoryConstellation,
+		CategoryCorporation,
+		CategoryFaction,
+		CategoryInventoryType,
+		CategoryRegion,
+		CategorySolarSystem,
+		CategoryStation,
+	} {
+		kindValues = append(kindValues, string(x))
+	}
+	kind := newEnumValue(kindValues, "")
+	fs.VarP(kind, "kind", "k", kind.FormatDescription("kind of the provided values"))
+
+	logLevel := newEnumValue(slices.Sorted(maps.Keys(logLevelMap)), logLevelDefault)
+	fs.VarP(logLevel, "log-level", "l", logLevel.FormatDescription("set the log level for the current run"))
+
 	authorize := fs.Bool("authorize", false, "authorize elt for using search (desktops only)")
-	category := fs.StringP("category", "c", "", "limit results to a category")
 	clearCache := fs.Bool("clear-cache", false, "clear the local cache before the lookup")
-	logLevel := fs.StringP("log-level", "l", logLevelDefault, "set the log level for the current run")
 	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
 	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
-	search := fs.StringP("search", "s", "", "perform search instead of lookup (desktops only)")
+	search := fs.StringP("search", "s", "", "perform search instead of lookup (requires authorization)")
 	showFiles := fs.Bool("files", false, "show path to files created by elt")
 	showVersion := fs.BoolP("version", "v", false, "print the version")
 	maxResults := fs.Int("max-results", maxResultsDefault, "set the maximum number of returned results. 0 = unlimited")
@@ -107,15 +134,9 @@ Examples:
 		return nil
 	}
 	// Set log level
-	m := map[string]slog.Level{
-		"debug": slog.LevelDebug,
-		"info":  slog.LevelInfo,
-		"warn":  slog.LevelWarn,
-		"error": slog.LevelError,
-	}
-	l, ok := m[strings.ToLower(*logLevel)]
+	l, ok := logLevelMap[strings.ToLower(logLevel.value)]
 	if !ok {
-		return fmt.Errorf("valid log levels are: %s", strings.Join(slices.Collect(maps.Keys(m)), ", "))
+		return fmt.Errorf("invalid log level")
 	}
 	slog.SetLogLoggerLevel(l)
 	logger := &lumberjack.Logger{
@@ -126,29 +147,6 @@ Examples:
 	defer logger.Close()
 	log.SetOutput(logger)
 
-	// category
-	if *category != "" {
-		validCategories := map[EveEntityCategory]struct{}{
-			CategoryAgent:         {},
-			CategoryAlliance:      {},
-			CategoryCharacter:     {},
-			CategoryConstellation: {},
-			CategoryCorporation:   {},
-			CategoryFaction:       {},
-			CategoryInventoryType: {},
-			CategoryRegion:        {},
-			CategorySolarSystem:   {},
-			CategoryStation:       {},
-		}
-		if _, ok := validCategories[EveEntityCategory(*category)]; !ok {
-			var v []string
-			for k := range validCategories {
-				v = append(v, string(k))
-			}
-			slices.Sort(v)
-			return fmt.Errorf("valid categories are: %s", strings.Join(v, ", "))
-		}
-	}
 	// Setup storage
 	db, err := bolt.Open(dbFilepath, 0600, nil)
 	if err != nil {
@@ -196,7 +194,7 @@ Examples:
 	a.MaxWidth = *maxWidth
 	a.MaxResults = *maxResults
 	a.SpinnerDisabled = *noSpinner
-	a.EntityCategory = EveEntityCategory(*category)
+	a.EntityCategory = EveEntityCategory(kind.value)
 
 	// Authorize app
 	if *authorize {

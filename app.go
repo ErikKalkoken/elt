@@ -72,15 +72,6 @@ func NewApp(authClient AuthClient, esiClient *esi.APIClient, st *Storage, out io
 }
 
 func (a App) Authorize() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	type result struct {
-		token *eveauth.Token
-		err   error
-	}
-	resultCh := make(chan result)
-	stopCh := make(chan os.Signal, 1)
-	signal.Notify(stopCh, os.Interrupt)
 	var bar *progressbar.ProgressBar
 	if !a.SpinnerDisabled {
 		bar = progressbar.NewOptions(-1,
@@ -92,6 +83,15 @@ func (a App) Authorize() error {
 			progressbar.OptionClearOnFinish(),
 		)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		token *eveauth.Token
+		err   error
+	}
+	resultCh := make(chan result)
+	stopCh := make(chan os.Signal, 1)
+	signal.Notify(stopCh, os.Interrupt)
 	go func() {
 		token, err := a.authClient.Authorize(
 			ctx,
