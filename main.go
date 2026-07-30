@@ -41,6 +41,13 @@ var ErrNotFound = errors.New("not found")
 // Version is overwritten in the CI release process.
 var Version = "0.7.0"
 
+var logLevelMap = map[string]slog.Level{
+	"debug": slog.LevelDebug,
+	"info":  slog.LevelInfo,
+	"warn":  slog.LevelWarn,
+	"error": slog.LevelError,
+}
+
 func main() {
 	exitWithError := func(err error) {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
@@ -65,11 +72,12 @@ func main() {
 }
 
 func run(args []string, _ io.Reader, stdout io.Writer, width int, dbFilepath, logFilePath string) error {
+	logLevel := newEnumValue(slices.Sorted(maps.Keys(logLevelMap)), logLevelDefault)
 	fs := pflag.NewFlagSet(args[0], pflag.ExitOnError)
 	authorize := fs.Bool("authorize", false, "authorize elt for using search (desktops only)")
 	category := fs.StringP("category", "c", "", "limit results to a category")
 	clearCache := fs.Bool("clear-cache", false, "clear the local cache before the lookup")
-	logLevel := fs.StringP("log-level", "l", logLevelDefault, "set the log level for the current run")
+	fs.VarP(logLevel, "log-level", "l", "set the log level for the current run")
 	maxWidth := fs.IntP("max-width", "w", width, "set the maximum width manually. 0 = unlimited")
 	noSpinner := fs.Bool("no-spinner", false, "do not show spinner")
 	search := fs.StringP("search", "s", "", "perform search instead of lookup (desktops only)")
@@ -107,15 +115,9 @@ Examples:
 		return nil
 	}
 	// Set log level
-	m := map[string]slog.Level{
-		"debug": slog.LevelDebug,
-		"info":  slog.LevelInfo,
-		"warn":  slog.LevelWarn,
-		"error": slog.LevelError,
-	}
-	l, ok := m[strings.ToLower(*logLevel)]
+	l, ok := logLevelMap[strings.ToLower(logLevel.value)]
 	if !ok {
-		return fmt.Errorf("valid log levels are: %s", strings.Join(slices.Collect(maps.Keys(m)), ", "))
+		return fmt.Errorf("invalid log level")
 	}
 	slog.SetLogLoggerLevel(l)
 	logger := &lumberjack.Logger{
