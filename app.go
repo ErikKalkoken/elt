@@ -681,7 +681,7 @@ func (a App) fetchCharacters(ids set.Set[int64]) ([]EveCharacter, error) {
 		ids,
 		a.st.ListFreshEveCharacterByID,
 		func(id int64) (*esi.CharactersDetail, *http.Response, error) {
-			return a.esiClient.CharacterAPI.GetCharactersCharacterId(context.Background(), id).Execute()
+			return a.esiClient.CharacterAPI.GetCharactersDetail(context.Background(), id).Execute()
 		},
 		func(id int64, x *esi.CharactersDetail) EveCharacter {
 			return EveCharacter{
@@ -733,7 +733,7 @@ func (a App) fetchCorporations(ids set.Set[int64]) ([]EveCorporation, error) {
 		func(id int64, x *esi.CorporationsDetail) EveCorporation {
 			return EveCorporation{
 				AllianceID:    x.GetAllianceId(),
-				CeoID:         x.CeoId,
+				CeoID:         x.GetCeoId(),
 				CorporationID: id,
 				MemberCount:   x.MemberCount,
 				Name:          x.Name,
