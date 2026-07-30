@@ -34,5 +34,14 @@ func (e *enumValue) String() string {
 
 // Type specifies the value type in help output
 func (e *enumValue) Type() string {
-	return fmt.Sprintf("[%s]", strings.Join(e.allowed, "|"))
+	return "string"
+}
+
+// FormatDescription generates formatted multi-line help text
+func (e *enumValue) FormatDescription(summary string) string {
+	return fmt.Sprintf(
+		"%s (allowed: %s)",
+		summary,
+		strings.Join(e.allowed, ", "),
+	)
 }
