@@ -39,7 +39,7 @@ const (
 var ErrNotFound = errors.New("not found")
 
 // Version is overwritten in the CI release process.
-var Version = "0.7.0"
+var Version = "0.8.0"
 
 var logLevelMap = map[string]slog.Level{
 	"debug": slog.LevelDebug,
